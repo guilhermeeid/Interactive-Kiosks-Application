@@ -1,0 +1,27 @@
+/* Estilos base do modo kiosk: telas touch fullscreen, sem seleção de texto,
+   sem cursor de mouse e com alvos de toque grandes. */
+
+* {
+  box-sizing: border-box;
+  /* Kiosk: cliente não deve conseguir selecionar texto na tela touch */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  /* Kiosk: sem necessidade de mouse — esconde o cursor */
+  cursor: none;
+  overscroll-behavior: none;
+}
+
+/* TODO: definir aqui (ou em um design system próprio) as variáveis de tema
+   (cores, tipografia, espaçamentos) usadas pelos componentes touch. */

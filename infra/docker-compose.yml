@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: totem-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-totem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em infra/.env (copie de .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-totem_autoatendimento}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - totem-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  totem-postgres-data:

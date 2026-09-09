@@ -1,4 +1,5 @@
 import type {
+  CanalComprovante,
   Comprovante,
   FormaPagamento,
   ItemCardapio,
@@ -7,51 +8,107 @@ import type {
   ResultadoPagamento,
 } from '@totem/shared';
 
-// Cliente HTTP que fala com apps/api. Centraliza a URL base e (futuramente)
-// tratamento de erro/timeout comuns a todas as chamadas do totem.
+// Cliente HTTP que fala com apps/api. Centraliza a URL base e o tratamento de erro
+// comum a todas as chamadas do totem.
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3333';
 
-// TODO: implementar chamada real GET /cardapio (US-01).
-export async function buscarCardapio(): Promise<ItemCardapio[]> {
-  throw new Error('buscarCardapio não implementado');
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const resposta = await fetch(`${API_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
+
+  if (!resposta.ok) {
+    const corpo = await resposta.json().catch(() => ({}));
+    throw new Error(corpo.message ?? `Erro ${resposta.status} ao chamar ${path}`);
+  }
+
+  return resposta.status === 204 ? (undefined as T) : resposta.json();
 }
 
-// TODO: implementar chamadas reais ao módulo de carrinho: POST/PATCH/DELETE
-// /carrinho/itens e GET /carrinho/:pedidoId (US-02, US-03).
-export async function obterCarrinho(pedidoId: string): Promise<Pedido> {
-  throw new Error('obterCarrinho não implementado');
+// US-01
+export function buscarCardapio(): Promise<ItemCardapio[]> {
+  return request('/cardapio');
 }
 
-// TODO: implementar chamada real POST /identificacao/fidelidade (US-04).
+// US-03
+export function obterCarrinho(pedidoId: string): Promise<Pedido> {
+  return request(`/carrinho/${pedidoId}`);
+}
+
+// US-02
+export function adicionarItemCarrinho(
+  pedidoId: string,
+  item: { itemCardapioId: string; nome: string; quantidade: number },
+): Promise<Pedido> {
+  return request('/carrinho/itens', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, item }),
+  });
+}
+
+// US-03
+export function atualizarItemCarrinho(
+  pedidoId: string,
+  itemCardapioId: string,
+  quantidade: number,
+): Promise<Pedido> {
+  return request('/carrinho/itens', {
+    method: 'PATCH',
+    body: JSON.stringify({ pedidoId, itemCardapioId, quantidade }),
+  });
+}
+
+// US-03
+export function removerItemCarrinho(pedidoId: string, itemCardapioId: string): Promise<Pedido> {
+  return request(`/carrinho/${pedidoId}/itens/${itemCardapioId}`, { method: 'DELETE' });
+}
+
+// US-04
 // LGPD: dado pessoal — exige consentimento/criptografia (numeroFidelidade)
-export async function informarFidelidade(pedidoId: string, numeroFidelidade: string): Promise<void> {
-  throw new Error('informarFidelidade não implementado');
+export function informarFidelidade(pedidoId: string, numeroFidelidade: string): Promise<void> {
+  return request('/identificacao/fidelidade', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, numeroFidelidade }),
+  });
 }
 
-// TODO: implementar chamada real POST /identificacao/cpf-nota (US-05).
+// US-05
 // LGPD: dado pessoal — exige consentimento/criptografia (cpf)
-export async function informarCpfNota(pedidoId: string, cpf: string): Promise<void> {
-  throw new Error('informarCpfNota não implementado');
+export function informarCpfNota(pedidoId: string, cpf: string): Promise<void> {
+  return request('/identificacao/cpf-nota', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, cpf }),
+  });
 }
 
-// TODO: implementar chamada real POST /cupom/aplicar (US-07).
-export async function aplicarCupom(pedidoId: string, codigo: string): Promise<ResultadoAplicacaoCupom> {
-  throw new Error('aplicarCupom não implementado');
+// US-07
+export function aplicarCupom(pedidoId: string, codigo: string): Promise<ResultadoAplicacaoCupom> {
+  return request('/cupom/aplicar', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, codigo }),
+  });
 }
 
-// TODO: implementar chamada real POST /pagamento (US-06).
-export async function escolherFormaPagamento(
+// US-06
+export function escolherFormaPagamento(
   pedidoId: string,
   formaPagamento: FormaPagamento,
 ): Promise<ResultadoPagamento> {
-  throw new Error('escolherFormaPagamento não implementado');
+  return request('/pagamento', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, formaPagamento }),
+  });
 }
 
-// TODO: implementar chamada real POST /comprovante (US-08).
+// US-08
 // LGPD: dado pessoal — exige consentimento/criptografia (email/telefone)
-export async function enviarComprovante(
+export function enviarComprovante(
   pedidoId: string,
-  destino: { canal: 'email' | 'sms'; email?: string; telefone?: string },
+  destino: { canal: CanalComprovante; email?: string; telefone?: string },
 ): Promise<Comprovante> {
-  throw new Error('enviarComprovante não implementado');
+  return request('/comprovante', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, ...destino }),
+  });
 }

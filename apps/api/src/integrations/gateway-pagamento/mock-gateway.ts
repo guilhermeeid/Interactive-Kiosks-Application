@@ -1,26 +1,39 @@
+import { randomUUID } from 'node:crypto';
 import type { ResultadoPagamento } from '@totem/shared';
-import type {
-  IniciarPagamentoParams,
-  PagamentoGateway,
-} from './PagamentoGateway';
+import type { IniciarPagamentoParams, PagamentoGateway } from './PagamentoGateway';
 
-// Implementação mock/stub de PagamentoGateway, usada em desenvolvimento e testes
-// enquanto o provedor real (adquirente) não é integrado.
+// Implementação mock/stub de PagamentoGateway: aprova qualquer pagamento
+// instantaneamente, sem contato com um adquirente real. Existe para o MVP rodar de
+// ponta a ponta antes da integração real (tokenização via SDK do pinpad) existir.
 // TODO: implementar adapter real (ex.: Stone, Cielo, PagSeguro) atendendo a
 // interface PagamentoGateway, sem alterar apps/api/src/modules/pagamento (US-06).
 export class MockPagamentoGateway implements PagamentoGateway {
+  private transacoes = new Map<string, ResultadoPagamento>();
+
   async iniciarPagamento(params: IniciarPagamentoParams): Promise<ResultadoPagamento> {
-    // TODO: implementar chamada real ao gateway de pagamento.
-    throw new Error('MockPagamentoGateway.iniciarPagamento não implementado');
+    const resultado: ResultadoPagamento = {
+      transacaoId: randomUUID(),
+      formaPagamento: params.formaPagamento,
+      status: 'autorizado',
+      valorCentavos: params.valorCentavos,
+      autorizadoEm: new Date().toISOString(),
+    };
+    this.transacoes.set(resultado.transacaoId, resultado);
+    return resultado;
   }
 
   async consultarStatus(transacaoId: string): Promise<ResultadoPagamento> {
-    // TODO: implementar consulta real de status da transação.
-    throw new Error('MockPagamentoGateway.consultarStatus não implementado');
+    const resultado = this.transacoes.get(transacaoId);
+    if (!resultado) {
+      throw new Error(`Transação "${transacaoId}" não encontrada`);
+    }
+    return resultado;
   }
 
   async estornar(transacaoId: string): Promise<void> {
-    // TODO: implementar estorno real junto ao gateway.
-    throw new Error('MockPagamentoGateway.estornar não implementado');
+    const resultado = this.transacoes.get(transacaoId);
+    if (resultado) {
+      resultado.status = 'estornado';
+    }
   }
 }

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { adicionarItem, atualizarItem, obterCarrinho, removerItem } from './carrinho.service';
 import type {
   AdicionarItemCarrinhoBody,
   AtualizarItemCarrinhoBody,
@@ -8,29 +9,25 @@ import type {
 // Rotas do Épico 1 — Carrinho (revisão/edição do pedido em montagem).
 export async function carrinhoRoutes(app: FastifyInstance): Promise<void> {
   // US-03: Revisar/editar carrinho
-  app.get<{ Params: { pedidoId: string } }>('/:pedidoId', async (request, reply) => {
-    // TODO: implementar handler chamando obterCarrinho(request.params.pedidoId).
-    return reply.notImplemented();
+  app.get<{ Params: { pedidoId: string } }>('/:pedidoId', async (request) => {
+    return obterCarrinho(request.params.pedidoId);
   });
 
   // US-02: Adicionar ao carrinho
-  app.post<{ Body: AdicionarItemCarrinhoBody }>('/itens', async (request, reply) => {
-    // TODO: implementar handler chamando adicionarItem(request.body).
-    return reply.notImplemented();
+  app.post<{ Body: AdicionarItemCarrinhoBody }>('/itens', async (request) => {
+    return adicionarItem(request.body);
   });
 
   // US-03: Revisar/editar carrinho (alterar quantidade)
-  app.patch<{ Body: AtualizarItemCarrinhoBody }>('/itens', async (request, reply) => {
-    // TODO: implementar handler chamando atualizarItem(request.body).
-    return reply.notImplemented();
+  app.patch<{ Body: AtualizarItemCarrinhoBody }>('/itens', async (request) => {
+    return atualizarItem(request.body);
   });
 
   // US-03: Revisar/editar carrinho (remover item)
   app.delete<{ Params: RemoverItemCarrinhoParams }>(
     '/:pedidoId/itens/:itemCardapioId',
-    async (request, reply) => {
-      // TODO: implementar handler chamando removerItem(request.params).
-      return reply.notImplemented();
+    async (request) => {
+      return removerItem(request.params);
     },
   );
 }

@@ -2,6 +2,9 @@
 // TODO: escolher e configurar um query builder/ORM (ex.: Drizzle, Kysely) para
 // substituir estes tipos por schema tipado com queries. Por ora, apenas o formato
 // das linhas de cada tabela, espelhando packages/shared/src/types.
+//
+// Nota: enquanto essa integração real não existe, os módulos de negócio usam o
+// armazenamento em memória de ./memory-store.ts, que segue os mesmos tipos.
 
 export interface ItemCardapioRow {
   id: string;

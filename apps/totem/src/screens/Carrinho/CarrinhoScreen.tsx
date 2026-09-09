@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { atualizarItemCarrinho, removerItemCarrinho } from '../../services/apiClient';
 import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
-
-function formatarCentavos(centavos: number): string {
-  return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
+import { formatarCentavos } from '../../utils/formatarMoeda';
 
 // US-02: reflexo do item adicionado a partir do Cardápio.
 // US-03: Revisar/editar carrinho.

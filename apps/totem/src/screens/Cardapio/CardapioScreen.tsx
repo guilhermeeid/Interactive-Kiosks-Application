@@ -3,10 +3,7 @@ import type { ItemCardapio } from '@totem/shared';
 import { adicionarItemCarrinho, buscarCardapio } from '../../services/apiClient';
 import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
-
-function formatarCentavos(centavos: number): string {
-  return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
+import { formatarCentavos } from '../../utils/formatarMoeda';
 
 // US-01: Visualizar cardápio.
 export function CardapioScreen() {

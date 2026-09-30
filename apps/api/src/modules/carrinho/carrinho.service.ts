@@ -12,8 +12,11 @@ import type {
 export async function adicionarItem(body: AdicionarItemCarrinhoBody): Promise<Pedido> {
   const pedido = obterOuCriarPedido(body.pedidoId);
   const itemCardapio = itensCardapio.find((item) => item.id === body.item.itemCardapioId);
-  if (!itemCardapio || !itemCardapio.disponivel) {
-    throw new HttpError(400, `Item de cardápio "${body.item.itemCardapioId}" indisponível`);
+  if (!itemCardapio) {
+    throw new HttpError(400, `Item de cardápio "${body.item.itemCardapioId}" não encontrado`);
+  }
+  if (!itemCardapio.disponivel) {
+    throw new HttpError(400, 'Item indisponível no momento');
   }
 
   const existente = pedido.itens.find((item) => item.itemCardapioId === itemCardapio.id);

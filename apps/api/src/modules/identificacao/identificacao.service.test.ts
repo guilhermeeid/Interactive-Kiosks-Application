@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { HttpError } from '../../errors';
-import { informarCpfNota, informarFidelidade } from './identificacao.service';
+import { consultarFidelidade, informarCpfNota, informarFidelidade } from './identificacao.service';
 
 describe('informarFidelidade', () => {
   it('cria um cliente novo com 0 pontos para um número de fidelidade inédito', async () => {
@@ -16,6 +16,27 @@ describe('informarFidelidade', () => {
     const primeiro = await informarFidelidade({ pedidoId: randomUUID(), numeroFidelidade: numero });
     const segundo = await informarFidelidade({ pedidoId: randomUUID(), numeroFidelidade: numero });
     expect(segundo.id).toBe(primeiro.id);
+  });
+
+  it('retorna o saldo de pontos do cliente cadastrado com o CPF 123.456.789-00', async () => {
+    const cliente = await informarFidelidade({
+      pedidoId: randomUUID(),
+      numeroFidelidade: '12345678900',
+    });
+    expect(cliente.pontos).toBe(1250);
+  });
+});
+
+describe('consultarFidelidade', () => {
+  it('retorna o saldo do cliente cadastrado', async () => {
+    const cliente = await consultarFidelidade('12345678900');
+    expect(cliente.pontos).toBe(1250);
+  });
+
+  it('lança 404 para número não cadastrado, sem criar cliente novo', async () => {
+    const numero = `fid-${randomUUID()}`;
+    await expect(consultarFidelidade(numero)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(consultarFidelidade(numero)).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

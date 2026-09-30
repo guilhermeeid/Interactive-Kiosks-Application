@@ -1,5 +1,6 @@
 import type {
   CanalComprovante,
+  ClienteFidelidade,
   Comprovante,
   FormaPagamento,
   ItemCardapio,
@@ -66,11 +67,20 @@ export function removerItemCarrinho(pedidoId: string, itemCardapioId: string): P
 
 // US-04
 // LGPD: dado pessoal — exige consentimento/criptografia (numeroFidelidade)
-export function informarFidelidade(pedidoId: string, numeroFidelidade: string): Promise<void> {
+export function informarFidelidade(
+  pedidoId: string,
+  numeroFidelidade: string,
+): Promise<ClienteFidelidade> {
   return request('/identificacao/fidelidade', {
     method: 'POST',
     body: JSON.stringify({ pedidoId, numeroFidelidade }),
   });
+}
+
+// US-04: consulta o saldo sem cadastrar nem vincular ao pedido
+// LGPD: dado pessoal — exige consentimento/criptografia (numeroFidelidade)
+export function consultarFidelidade(numeroFidelidade: string): Promise<ClienteFidelidade> {
+  return request(`/identificacao/fidelidade/${encodeURIComponent(numeroFidelidade)}`);
 }
 
 // US-05

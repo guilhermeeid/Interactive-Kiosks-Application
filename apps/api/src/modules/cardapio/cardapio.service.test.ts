@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { listarCardapio } from './cardapio.service';
 
 describe('listarCardapio', () => {
-  it('retorna apenas itens disponíveis quando nenhum filtro é aplicado', async () => {
+  it('retorna também os itens indisponíveis, marcados com disponivel: false', async () => {
     const itens = await listarCardapio({});
-    expect(itens.length).toBeGreaterThan(0);
-    expect(itens.every((item) => item.disponivel)).toBe(true);
+    const suco = itens.find((item) => item.id === 'suco-natural');
+    expect(suco?.disponivel).toBe(false);
+    expect(itens.some((item) => item.disponivel)).toBe(true);
   });
 
   it('filtra por categoria quando informada', async () => {

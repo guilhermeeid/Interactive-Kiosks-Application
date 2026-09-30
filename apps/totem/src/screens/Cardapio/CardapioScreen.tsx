@@ -4,6 +4,7 @@ import { adicionarItemCarrinho, buscarCardapio } from '../../services/apiClient'
 import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { formatarCentavos } from '../../utils/formatarMoeda';
+import { visualCategoria } from '../../utils/visualCategoria';
 
 // US-01: Visualizar cardápio.
 export function CardapioScreen() {
@@ -38,24 +39,57 @@ export function CardapioScreen() {
 
   return (
     <div className="tela">
-      <h1>Cardápio</h1>
-      {carregando && <p>Carregando cardápio...</p>}
+      <h1 className="tela__titulo">Cardápio</h1>
+      <p className="tela__subtitulo">Escolha seus favoritos e monte seu pedido.</p>
+      {carregando && <p className="aviso">Carregando cardápio...</p>}
       {erro && <p className="erro">{erro}</p>}
 
       <div className="cardapio-grid">
-        {itens.map((item) => (
-          <div key={item.id} className="cardapio-item">
-            <h2>{item.nome}</h2>
-            <p>{item.descricao}</p>
-            <strong>{formatarCentavos(item.precoCentavos)}</strong>
-            <BotaoTouch onClick={() => adicionar(item)}>Adicionar</BotaoTouch>
-          </div>
-        ))}
+        {itens.map((item) => {
+          const visual = visualCategoria(item.categoria);
+          return (
+            <article
+              key={item.id}
+              className={
+                item.disponivel ? 'cardapio-item' : 'cardapio-item cardapio-item--indisponivel'
+              }
+            >
+              <div
+                className="cardapio-item__foto"
+                style={{ background: visual.fundo }}
+                aria-hidden="true"
+              >
+                {visual.emoji}
+              </div>
+              {!item.disponivel && <span className="selo-esgotado">Esgotado</span>}
+              <div className="cardapio-item__corpo">
+                <h2>{item.nome}</h2>
+                <p>{item.disponivel ? item.descricao : 'Item indisponível no momento'}</p>
+                <div className="cardapio-item__rodape">
+                  <span className="preco">{formatarCentavos(item.precoCentavos)}</span>
+                  <BotaoTouch
+                    variante="primario"
+                    onClick={() => adicionar(item)}
+                    disabled={!item.disponivel}
+                  >
+                    {item.disponivel ? 'Adicionar' : 'Indisponível'}
+                  </BotaoTouch>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
-      <BotaoTouch onClick={() => irParaEtapa('carrinho')} disabled={quantidadeNoCarrinho === 0}>
-        Ver carrinho ({quantidadeNoCarrinho})
-      </BotaoTouch>
+      <div className="barra-carrinho">
+        <BotaoTouch
+          variante="destaque"
+          onClick={() => irParaEtapa('carrinho')}
+          disabled={quantidadeNoCarrinho === 0}
+        >
+          🛒 Ver carrinho ({quantidadeNoCarrinho})
+        </BotaoTouch>
+      </div>
     </div>
   );
 }

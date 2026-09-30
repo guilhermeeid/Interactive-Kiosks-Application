@@ -1,6 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { ClienteFidelidade } from '@totem/shared';
 import { TecladoNumerico } from '../../components/TecladoNumerico';
-import { informarCpfNota, informarFidelidade } from '../../services/apiClient';
+import {
+  consultarFidelidade,
+  informarCpfNota,
+  informarFidelidade,
+} from '../../services/apiClient';
 import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
 
@@ -14,15 +19,33 @@ export function IdentificacaoScreen() {
   const [cpf, setCpf] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const { pedidoId, irParaEtapa } = usePedido();
+  const [clienteEncontrado, setClienteEncontrado] = useState<ClienteFidelidade | null>(null);
+  const { pedidoId, irParaEtapa, definirClienteFidelidade } = usePedido();
+
+  // Exibe o saldo assim que o número de fidelidade (ou o CPF completo, que também
+  // serve como número de fidelidade) corresponde a um cliente cadastrado.
+  const chaveFidelidade = numeroFidelidade || (cpf.length === 11 ? cpf : '');
+  useEffect(() => {
+    setClienteEncontrado(null);
+    if (!chaveFidelidade) return;
+
+    let cancelado = false;
+    consultarFidelidade(chaveFidelidade)
+      .then((cliente) => !cancelado && setClienteEncontrado(cliente))
+      .catch(() => {
+        // Número não cadastrado: nada a exibir.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [chaveFidelidade]);
 
   async function continuar() {
     setEnviando(true);
     setErro(null);
     try {
-      if (numeroFidelidade) {
-        await informarFidelidade(pedidoId, numeroFidelidade);
-      }
+      const numero = numeroFidelidade || clienteEncontrado?.numeroFidelidade;
+      definirClienteFidelidade(numero ? await informarFidelidade(pedidoId, numero) : null);
       if (cpf) {
         await informarCpfNota(pedidoId, cpf);
       }
@@ -36,24 +59,34 @@ export function IdentificacaoScreen() {
 
   return (
     <div className="tela">
-      <h1>Identificação (opcional)</h1>
+      <h1 className="tela__titulo">Identificação (opcional)</h1>
+      <p className="tela__subtitulo">Informe seus dados ou pule esta etapa.</p>
       {erro && <p className="erro">{erro}</p>}
 
-      <section>
-        <h2>Número de fidelidade</h2>
-        <p className="valor-digitado">{numeroFidelidade || '—'}</p>
-        <TecladoNumerico valor={numeroFidelidade} onChange={setNumeroFidelidade} tamanhoMaximo={12} />
-      </section>
+      <div className="grade-2">
+        <section className="cartao">
+          <h2>⭐ Número de fidelidade</h2>
+          <p className="valor-digitado">{numeroFidelidade || '—'}</p>
+          <TecladoNumerico valor={numeroFidelidade} onChange={setNumeroFidelidade} tamanhoMaximo={12} />
+        </section>
 
-      <section>
-        <h2>CPF na nota</h2>
-        <p className="valor-digitado">{cpf || '—'}</p>
-        <TecladoNumerico valor={cpf} onChange={setCpf} tamanhoMaximo={11} />
-      </section>
+        <section className="cartao">
+          <h2>🧾 CPF na nota</h2>
+          <p className="valor-digitado">{cpf || '—'}</p>
+          <TecladoNumerico valor={cpf} onChange={setCpf} tamanhoMaximo={11} />
+        </section>
+      </div>
+
+      {clienteEncontrado && (
+        <p className="pontos-fidelidade">
+          <span>⭐ Subtotal de pontos de fidelidade</span>
+          <strong>{clienteEncontrado.pontos.toLocaleString('pt-BR')} pontos</strong>
+        </p>
+      )}
 
       <div className="tela__acoes">
         <BotaoTouch onClick={() => irParaEtapa('carrinho')}>Voltar</BotaoTouch>
-        <BotaoTouch onClick={continuar} disabled={enviando}>
+        <BotaoTouch variante="primario" onClick={continuar} disabled={enviando}>
           {numeroFidelidade || cpf ? 'Continuar' : 'Pular'}
         </BotaoTouch>
       </div>

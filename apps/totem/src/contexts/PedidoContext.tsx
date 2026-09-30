@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Pedido } from '@totem/shared';
+import type { ClienteFidelidade, Pedido } from '@totem/shared';
 import { obterCarrinho } from '../services/apiClient';
 
 // Etapas do fluxo linear do totem: Cardápio -> Carrinho -> Identificação ->
@@ -10,6 +10,9 @@ export type EtapaFluxo = 'cardapio' | 'carrinho' | 'identificacao' | 'pagamento'
 interface PedidoContextValue {
   pedidoId: string;
   pedido: Pedido | null;
+  // LGPD: dado pessoal — exige consentimento/criptografia (numeroFidelidade)
+  clienteFidelidade: ClienteFidelidade | null;
+  definirClienteFidelidade: (cliente: ClienteFidelidade | null) => void;
   etapaAtual: EtapaFluxo;
   irParaEtapa: (etapa: EtapaFluxo) => void;
   recarregarPedido: () => Promise<void>;
@@ -30,6 +33,7 @@ function gerarPedidoId(): string {
 export function PedidoProvider({ children }: { children: ReactNode }) {
   const [pedidoId, setPedidoId] = useState<string>(gerarPedidoId);
   const [pedido, setPedido] = useState<Pedido | null>(null);
+  const [clienteFidelidade, setClienteFidelidade] = useState<ClienteFidelidade | null>(null);
   const [etapaAtual, setEtapaAtual] = useState<EtapaFluxo>('cardapio');
 
   const recarregarPedido = useCallback(async () => {
@@ -47,12 +51,15 @@ export function PedidoProvider({ children }: { children: ReactNode }) {
   const reiniciarPedido = useCallback(() => {
     setPedidoId(gerarPedidoId());
     setPedido(null);
+    setClienteFidelidade(null);
     setEtapaAtual('cardapio');
   }, []);
 
   const value: PedidoContextValue = {
     pedidoId,
     pedido,
+    clienteFidelidade,
+    definirClienteFidelidade: setClienteFidelidade,
     etapaAtual,
     irParaEtapa: setEtapaAtual,
     recarregarPedido,

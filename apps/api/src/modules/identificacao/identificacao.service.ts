@@ -24,6 +24,18 @@ export async function informarFidelidade(
   return cliente;
 }
 
+// US-04: Consulta o saldo de um cliente de fidelidade já cadastrado, sem criar um
+// novo nem vincular ao pedido — usada pelo totem para exibir os pontos enquanto o
+// cliente digita.
+// LGPD: dado pessoal — exige consentimento/criptografia (numeroFidelidade)
+export async function consultarFidelidade(numeroFidelidade: string): Promise<ClienteFidelidade> {
+  const cliente = clientesFidelidade.get(numeroFidelidade);
+  if (!cliente) {
+    throw new HttpError(404, 'Cliente de fidelidade não encontrado');
+  }
+  return cliente;
+}
+
 // US-05: Informar CPF na nota.
 // TODO: validar os dígitos verificadores do CPF; por ora só validamos o formato
 // (11 dígitos numéricos).

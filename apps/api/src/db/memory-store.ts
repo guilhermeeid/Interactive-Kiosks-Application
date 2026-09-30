@@ -53,14 +53,18 @@ export const itensCardapio: ItemCardapio[] = [
     descricao: '400ml',
     categoria: 'bebidas',
     precoCentavos: 890,
-    disponivel: true,
+    // Esgotado: aparece no cardápio como indisponível e não pode ser adicionado.
+    disponivel: false,
   },
 ];
 
 export const pedidos = new Map<string, Pedido>();
 
 // LGPD: dado pessoal — exige consentimento/criptografia (chave é numeroFidelidade)
-export const clientesFidelidade = new Map<string, ClienteFidelidade>();
+// Cliente de demonstração: o CPF 123.456.789-00 é o número de fidelidade, com saldo.
+export const clientesFidelidade = new Map<string, ClienteFidelidade>([
+  ['12345678900', { id: 'cliente-demo', numeroFidelidade: '12345678900', pontos: 1250 }],
+]);
 
 export const comprovantes = new Map<string, Comprovante>();
 

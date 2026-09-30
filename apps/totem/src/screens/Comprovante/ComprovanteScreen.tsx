@@ -38,10 +38,19 @@ export function ComprovanteScreen() {
   if (comprovante) {
     return (
       <div className="tela">
-        <h1>Pedido concluído!</h1>
-        <p>Comprovante enviado por {comprovante.destino.canal}.</p>
-        {comprovante.notaFiscalUrl && <p>Nota fiscal: {comprovante.notaFiscalUrl}</p>}
-        <BotaoTouch onClick={reiniciarPedido}>Novo pedido</BotaoTouch>
+        <div className="sucesso cartao">
+          <div className="sucesso__icone" aria-hidden="true">
+            🎉
+          </div>
+          <h1 className="tela__titulo">Pedido concluído!</h1>
+          <p className="tela__subtitulo">Comprovante enviado por {comprovante.destino.canal}.</p>
+          {comprovante.notaFiscalUrl && (
+            <p className="nota">Nota fiscal: {comprovante.notaFiscalUrl}</p>
+          )}
+          <BotaoTouch variante="primario" onClick={reiniciarPedido}>
+            Novo pedido
+          </BotaoTouch>
+        </div>
       </div>
     );
   }
@@ -50,36 +59,42 @@ export function ComprovanteScreen() {
 
   return (
     <div className="tela">
-      <h1>Comprovante</h1>
+      <h1 className="tela__titulo">Comprovante</h1>
+      <p className="tela__subtitulo">Como você quer receber seu comprovante?</p>
 
-      <div className="tela__acoes">
+      <div className="segmento">
         <BotaoTouch onClick={() => setCanal('email')} disabled={canal === 'email'}>
-          E-mail
+          ✉️ E-mail
         </BotaoTouch>
         <BotaoTouch onClick={() => setCanal('sms')} disabled={canal === 'sms'}>
-          SMS
+          📱 SMS
         </BotaoTouch>
       </div>
 
-      {canal === 'email' ? (
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="seuemail@exemplo.com"
-        />
-      ) : (
-        <>
-          <p className="valor-digitado">{telefone || '—'}</p>
-          <TecladoNumerico valor={telefone} onChange={setTelefone} tamanhoMaximo={11} />
-        </>
-      )}
+      <section className="cartao">
+        {canal === 'email' ? (
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="seuemail@exemplo.com"
+          />
+        ) : (
+          <>
+            <p className="valor-digitado">{telefone || '—'}</p>
+            <TecladoNumerico valor={telefone} onChange={setTelefone} tamanhoMaximo={11} />
+          </>
+        )}
+      </section>
 
       {erro && <p className="erro">{erro}</p>}
 
-      <BotaoTouch onClick={enviar} disabled={enviando || !podeEnviar}>
-        Enviar comprovante
-      </BotaoTouch>
+      <div className="tela__acoes">
+        <span />
+        <BotaoTouch variante="primario" onClick={enviar} disabled={enviando || !podeEnviar}>
+          Enviar comprovante
+        </BotaoTouch>
+      </div>
     </div>
   );
 }

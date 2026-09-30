@@ -6,6 +6,10 @@ export interface InformarFidelidadeBody {
   numeroFidelidade: string; // LGPD: dado pessoal — exige consentimento/criptografia
 }
 
+export interface ConsultarFidelidadeParams {
+  numeroFidelidade: string; // LGPD: dado pessoal — exige consentimento/criptografia
+}
+
 export interface InformarCpfNotaBody {
   pedidoId: string;
   cpf: string; // LGPD: dado pessoal — exige consentimento/criptografia

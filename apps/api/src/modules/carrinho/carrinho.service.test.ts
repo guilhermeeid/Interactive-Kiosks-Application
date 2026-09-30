@@ -26,6 +26,19 @@ describe('adicionarItem', () => {
       adicionarItem({ pedidoId, item: { itemCardapioId: 'nao-existe', nome: 'X', quantidade: 1 } }),
     ).rejects.toThrow(HttpError);
   });
+
+  it('rejeita item indisponível com a mensagem "Item indisponível no momento"', async () => {
+    const pedidoId = randomUUID();
+    await expect(
+      adicionarItem({
+        pedidoId,
+        item: { itemCardapioId: 'suco-natural', nome: 'Suco Natural', quantidade: 1 },
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Item indisponível no momento' });
+
+    const pedido = await obterCarrinho(pedidoId);
+    expect(pedido.itens).toEqual([]);
+  });
 });
 
 describe('atualizarItem', () => {
@@ -59,9 +72,9 @@ describe('removerItem', () => {
     const pedidoId = randomUUID();
     await adicionarItem({
       pedidoId,
-      item: { itemCardapioId: 'suco-natural', nome: 'Suco Natural', quantidade: 1 },
+      item: { itemCardapioId: 'refrigerante-lata', nome: 'Refrigerante (lata)', quantidade: 1 },
     });
-    const pedido = await removerItem({ pedidoId, itemCardapioId: 'suco-natural' });
+    const pedido = await removerItem({ pedidoId, itemCardapioId: 'refrigerante-lata' });
     expect(pedido.itens).toEqual([]);
   });
 });

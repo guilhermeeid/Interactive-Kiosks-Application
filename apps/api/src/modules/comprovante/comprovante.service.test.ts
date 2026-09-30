@@ -10,7 +10,7 @@ describe('enviarComprovante', () => {
     const pedidoId = randomUUID();
     await adicionarItem({
       pedidoId,
-      item: { itemCardapioId: 'suco-natural', nome: 'Suco Natural', quantidade: 1 },
+      item: { itemCardapioId: 'refrigerante-lata', nome: 'Refrigerante (lata)', quantidade: 1 },
     });
 
     const comprovante = await enviarComprovante(

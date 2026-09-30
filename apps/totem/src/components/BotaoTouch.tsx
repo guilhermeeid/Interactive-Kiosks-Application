@@ -1,8 +1,14 @@
 import type { ButtonHTMLAttributes } from 'react';
 
 // Botão de alvo de toque grande, reutilizado em todas as telas do totem.
-// TODO: aplicar estilo visual definitivo (tamanho mínimo de toque, feedback ao
-// pressionar) quando o design system do totem for definido.
-export function BotaoTouch(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" {...props} />;
+// A aparência de cada variante fica em styles/global.css (.botao--<variante>).
+export type VarianteBotao = 'padrao' | 'primario' | 'destaque' | 'perigo';
+
+export interface BotaoTouchProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variante?: VarianteBotao;
+}
+
+export function BotaoTouch({ variante = 'padrao', className, ...props }: BotaoTouchProps) {
+  const classes = ['botao', `botao--${variante}`, className].filter(Boolean).join(' ');
+  return <button type="button" className={classes} {...props} />;
 }

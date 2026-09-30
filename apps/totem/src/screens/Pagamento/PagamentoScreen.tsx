@@ -5,11 +5,11 @@ import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { formatarCentavos } from '../../utils/formatarMoeda';
 
-const FORMAS: { valor: FormaPagamento; rotulo: string }[] = [
-  { valor: 'credito', rotulo: 'Crédito' },
-  { valor: 'debito', rotulo: 'Débito' },
-  { valor: 'pix', rotulo: 'Pix' },
-  { valor: 'dinheiro', rotulo: 'Dinheiro' },
+const FORMAS: { valor: FormaPagamento; rotulo: string; icone: string }[] = [
+  { valor: 'credito', rotulo: 'Crédito', icone: '💳' },
+  { valor: 'debito', rotulo: 'Débito', icone: '🏧' },
+  { valor: 'pix', rotulo: 'Pix', icone: '⚡' },
+  { valor: 'dinheiro', rotulo: 'Dinheiro', icone: '💵' },
 ];
 
 // US-06: Escolher forma de pagamento.
@@ -21,7 +21,7 @@ export function PagamentoScreen() {
   const [cupomAplicado, setCupomAplicado] = useState<ResultadoAplicacaoCupom | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
-  const { pedidoId, pedido, recarregarPedido, irParaEtapa } = usePedido();
+  const { pedidoId, pedido, clienteFidelidade, recarregarPedido, irParaEtapa } = usePedido();
 
   // US-07
   async function aplicar() {
@@ -57,26 +57,51 @@ export function PagamentoScreen() {
 
   return (
     <div className="tela">
-      <h1>Pagamento</h1>
+      <h1 className="tela__titulo">Pagamento</h1>
+      <p className="tela__subtitulo">Como você prefere pagar?</p>
 
-      <section>
-        <h2>Cupom de desconto</h2>
-        <input
-          value={codigoCupom}
-          onChange={(e) => setCodigoCupom(e.target.value)}
-          placeholder="Código do cupom"
-        />
-        <BotaoTouch onClick={aplicar}>Aplicar</BotaoTouch>
-        {cupomAplicado && <p>Desconto: {formatarCentavos(cupomAplicado.descontoCentavos)}</p>}
+      <section className="cartao">
+        <h2>🏷️ Cupom de desconto</h2>
+        <div className="cupom">
+          <input
+            value={codigoCupom}
+            onChange={(e) => setCodigoCupom(e.target.value)}
+            placeholder="Código do cupom"
+          />
+          <BotaoTouch variante="destaque" onClick={aplicar}>
+            Aplicar
+          </BotaoTouch>
+        </div>
+        {cupomAplicado && (
+          <p className="desconto">Desconto: {formatarCentavos(cupomAplicado.descontoCentavos)}</p>
+        )}
       </section>
 
-      <p className="carrinho-total">Total a pagar: {formatarCentavos(total)}</p>
+      {clienteFidelidade && (
+        <p className="pontos-fidelidade">
+          <span>⭐ Subtotal de pontos de fidelidade</span>
+          <strong>{clienteFidelidade.pontos.toLocaleString('pt-BR')} pontos</strong>
+        </p>
+      )}
+
+      <p className="total">
+        <span>Total a pagar</span>
+        <strong>{formatarCentavos(total)}</strong>
+      </p>
 
       {erro && <p className="erro">{erro}</p>}
 
       <section className="formas-pagamento">
         {FORMAS.map((forma) => (
-          <BotaoTouch key={forma.valor} onClick={() => pagar(forma.valor)} disabled={processando}>
+          <BotaoTouch
+            key={forma.valor}
+            className="forma-pagamento"
+            onClick={() => pagar(forma.valor)}
+            disabled={processando}
+          >
+            <span className="forma-pagamento__icone" aria-hidden="true">
+              {forma.icone}
+            </span>
             {forma.rotulo}
           </BotaoTouch>
         ))}

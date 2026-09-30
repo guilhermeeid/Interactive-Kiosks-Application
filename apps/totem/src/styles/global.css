@@ -596,3 +596,59 @@ input:focus {
   font-size: 0.95rem;
   word-break: break-all;
 }
+
+/* ---------- Busca e categorias do cardápio (US-01, US-02) ---------- */
+
+.busca {
+  margin-bottom: 1rem;
+}
+
+.busca__campo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.busca__campo input {
+  flex: 1 1 260px;
+}
+
+.categorias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.teclado-virtual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--cor-papel);
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
+.teclado-virtual__linha {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.teclado-virtual__linha button {
+  flex: 1 1 0;
+  max-width: 4.5rem;
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: 0;
+  border-radius: 0.9rem;
+  font-size: 1.3rem;
+}
+
+.teclado-virtual__linha .teclado-virtual__espaco {
+  flex: 4 1 0;
+  max-width: 20rem;
+}

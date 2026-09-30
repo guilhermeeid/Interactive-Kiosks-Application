@@ -27,9 +27,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return resposta.status === 204 ? (undefined as T) : resposta.json();
 }
 
-// US-01
-export function buscarCardapio(): Promise<ItemCardapio[]> {
-  return request('/cardapio');
+// US-01 (categoria) e US-02 (busca por nome)
+export function buscarCardapio(filtros: { categoria?: string; busca?: string } = {}): Promise<
+  ItemCardapio[]
+> {
+  const params = new URLSearchParams();
+  if (filtros.categoria) params.set('categoria', filtros.categoria);
+  if (filtros.busca?.trim()) params.set('busca', filtros.busca.trim());
+  const query = params.toString();
+  return request(`/cardapio${query ? `?${query}` : ''}`);
 }
 
 // US-03

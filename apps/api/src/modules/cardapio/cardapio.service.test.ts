@@ -19,4 +19,27 @@ describe('listarCardapio', () => {
     const itens = await listarCardapio({ categoria: 'sobremesas' });
     expect(itens).toEqual([]);
   });
+
+  // US-02
+  it('busca por trecho do nome, ignorando maiúsculas e acentos', async () => {
+    const itens = await listarCardapio({ busca: 'LANCHE' });
+    expect(itens.map((item) => item.id)).toEqual(['lanche-classico', 'lanche-duplo']);
+    expect(await listarCardapio({ busca: 'clássi' })).toHaveLength(1);
+    expect(await listarCardapio({ busca: 'classi' })).toHaveLength(1);
+  });
+
+  it('combina busca com categoria', async () => {
+    const itens = await listarCardapio({ categoria: 'bebidas', busca: 'suco' });
+    expect(itens.map((item) => item.id)).toEqual(['suco-natural']);
+    expect(await listarCardapio({ categoria: 'lanches', busca: 'suco' })).toEqual([]);
+  });
+
+  it('retorna lista vazia quando nenhum nome corresponde à busca', async () => {
+    expect(await listarCardapio({ busca: 'pizza' })).toEqual([]);
+  });
+
+  it('ignora busca vazia ou só com espaços', async () => {
+    const todos = await listarCardapio({});
+    expect(await listarCardapio({ busca: '   ' })).toHaveLength(todos.length);
+  });
 });

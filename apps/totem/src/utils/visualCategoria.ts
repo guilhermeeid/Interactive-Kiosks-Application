@@ -12,6 +12,14 @@ const VISUAIS: Record<string, VisualCategoria> = {
   sobremesas: { emoji: '🍨', fundo: '#f6ddf0' },
 };
 
+// US-01: categorias exibidas no totem, na ordem das abas (id = categoria do item).
+export const CATEGORIAS: { id: string; nome: string }[] = [
+  { id: 'lanches', nome: 'Lanches' },
+  { id: 'acompanhamentos', nome: 'Acompanhamentos' },
+  { id: 'bebidas', nome: 'Bebidas' },
+  { id: 'sobremesas', nome: 'Sobremesas' },
+];
+
 const VISUAL_PADRAO: VisualCategoria = { emoji: '🍽️', fundo: '#f3e3cc' };
 
 export function visualCategoria(categoria: string): VisualCategoria {

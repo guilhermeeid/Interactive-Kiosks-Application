@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS cupons (
   codigo TEXT PRIMARY KEY,
   tipo_desconto TEXT NOT NULL CHECK (tipo_desconto IN ('percentual', 'valor_fixo')),
   valor INTEGER NOT NULL,
+  valido_de TIMESTAMPTZ,
   valido_ate TIMESTAMPTZ,
   ativo BOOLEAN NOT NULL DEFAULT TRUE
 );

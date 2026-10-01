@@ -71,6 +71,30 @@ export const comprovantes = new Map<string, Comprovante>();
 export const cupons = new Map<string, Cupom>([
   ['BEMVINDO10', { codigo: 'BEMVINDO10', tipoDesconto: 'percentual', valor: 10, ativo: true }],
   ['DESC5', { codigo: 'DESC5', tipoDesconto: 'valor_fixo', valor: 500, ativo: true }],
+  // Cupons de exemplo para testar a vigência (US 24) no totem: VALIDO vale até 2099;
+  // INVALIDO já expirou em 2020 e deve ser sempre recusado.
+  [
+    'VALIDO',
+    {
+      codigo: 'VALIDO',
+      tipoDesconto: 'percentual',
+      valor: 15,
+      validoDe: '2026-01-01T00:00:00-03:00',
+      validoAte: '2099-12-31T23:59:59-03:00',
+      ativo: true,
+    },
+  ],
+  [
+    'INVALIDO',
+    {
+      codigo: 'INVALIDO',
+      tipoDesconto: 'percentual',
+      valor: 15,
+      validoDe: '2020-01-01T00:00:00-03:00',
+      validoAte: '2020-12-31T23:59:59-03:00',
+      ativo: true,
+    },
+  ],
 ]);
 
 export function obterOuCriarPedido(pedidoId: string): Pedido {

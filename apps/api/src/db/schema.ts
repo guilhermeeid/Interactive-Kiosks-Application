@@ -26,6 +26,7 @@ export interface CupomRow {
   codigo: string;
   tipo_desconto: 'percentual' | 'valor_fixo';
   valor: number;
+  valido_de: string | null;
   valido_ate: string | null;
   ativo: boolean;
 }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ItemCardapio } from '@totem/shared';
 import { adicionarItemCarrinho, buscarCardapio } from '../../services/apiClient';
 import { usePedido } from '../../contexts/PedidoContext';
+import { useFecharAoTocarFora } from '../../hooks/useFecharAoTocarFora';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { TecladoVirtual } from '../../components/TecladoVirtual';
 import { formatarCentavos } from '../../utils/formatarMoeda';
@@ -21,16 +22,8 @@ export function CardapioScreen() {
 
   // Fecha o teclado ao tocar fora da área de busca (campo + teclado); o texto digitado
   // permanece no campo e o teclado volta ao tocar nele de novo.
-  useEffect(() => {
-    if (!tecladoAberto) return;
-    function aoTocar(evento: PointerEvent) {
-      if (!buscaRef.current?.contains(evento.target as Node)) {
-        setTecladoAberto(false);
-      }
-    }
-    document.addEventListener('pointerdown', aoTocar);
-    return () => document.removeEventListener('pointerdown', aoTocar);
-  }, [tecladoAberto]);
+  const fecharTeclado = useCallback(() => setTecladoAberto(false), []);
+  useFecharAoTocarFora(buscaRef, tecladoAberto, fecharTeclado);
 
   // Recarrega a lista a cada mudança de categoria/busca. `cancelado` evita que uma
   // resposta antiga sobrescreva a mais recente quando o cliente digita rápido.

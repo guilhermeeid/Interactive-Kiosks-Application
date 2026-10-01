@@ -28,9 +28,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // US-01 (categoria) e US-02 (busca por nome)
-export function buscarCardapio(filtros: { categoria?: string; busca?: string } = {}): Promise<
-  ItemCardapio[]
-> {
+export function buscarCardapio(
+  filtros: { categoria?: string; busca?: string } = {},
+): Promise<ItemCardapio[]> {
   const params = new URLSearchParams();
   if (filtros.categoria) params.set('categoria', filtros.categoria);
   if (filtros.busca?.trim()) params.set('busca', filtros.busca.trim());
@@ -98,7 +98,7 @@ export function informarCpfNota(pedidoId: string, cpf: string): Promise<void> {
   });
 }
 
-// US-07
+// US 13
 export function aplicarCupom(pedidoId: string, codigo: string): Promise<ResultadoAplicacaoCupom> {
   return request('/cupom/aplicar', {
     method: 'POST',

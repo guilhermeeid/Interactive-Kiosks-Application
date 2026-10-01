@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { FormaPagamento, ResultadoAplicacaoCupom } from '@totem/shared';
 import { aplicarCupom, escolherFormaPagamento } from '../../services/apiClient';
 import { usePedido } from '../../contexts/PedidoContext';
+import { useFecharAoTocarFora } from '../../hooks/useFecharAoTocarFora';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { TecladoVirtual } from '../../components/TecladoVirtual';
 import { formatarCentavos } from '../../utils/formatarMoeda';
 
 const FORMAS: { valor: FormaPagamento; rotulo: string; icone: string }[] = [
@@ -13,24 +15,32 @@ const FORMAS: { valor: FormaPagamento; rotulo: string; icone: string }[] = [
 ];
 
 // US-06: Escolher forma de pagamento.
-// US-07: Aplicar cupom de desconto.
+// US 13: Aplicar cupom de desconto (campo com teclado virtual).
 // IMPORTANTE: esta tela nunca deve capturar ou armazenar dados de cartão — a
 // tokenização acontece no gateway/adquirente (ver apps/api/src/integrations/gateway-pagamento).
 export function PagamentoScreen() {
   const [codigoCupom, setCodigoCupom] = useState('');
   const [cupomAplicado, setCupomAplicado] = useState<ResultadoAplicacaoCupom | null>(null);
+  const [erroCupom, setErroCupom] = useState<string | null>(null);
+  const [tecladoAberto, setTecladoAberto] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
+  const cupomRef = useRef<HTMLDivElement>(null);
   const { pedidoId, pedido, clienteFidelidade, recarregarPedido, irParaEtapa } = usePedido();
 
-  // US-07
+  // Fecha o teclado ao tocar fora do campo de cupom; o código digitado permanece.
+  const fecharTeclado = useCallback(() => setTecladoAberto(false), []);
+  useFecharAoTocarFora(cupomRef, tecladoAberto, fecharTeclado);
+
+  // US 13: cupom recusado não altera o pedido, que segue com o total anterior.
   async function aplicar() {
-    setErro(null);
+    setErroCupom(null);
+    setTecladoAberto(false);
     try {
       const resultado = await aplicarCupom(pedidoId, codigoCupom);
       setCupomAplicado(resultado);
     } catch (err) {
-      setErro((err as Error).message);
+      setErroCupom((err as Error).message);
     }
   }
 
@@ -62,18 +72,35 @@ export function PagamentoScreen() {
 
       <section className="cartao">
         <h2>🏷️ Cupom de desconto</h2>
-        <div className="cupom">
-          <input
-            value={codigoCupom}
-            onChange={(e) => setCodigoCupom(e.target.value)}
-            placeholder="Código do cupom"
-          />
-          <BotaoTouch variante="destaque" onClick={aplicar}>
-            Aplicar
-          </BotaoTouch>
+        <div ref={cupomRef}>
+          <div className="cupom">
+            <input
+              readOnly
+              value={codigoCupom}
+              onClick={() => setTecladoAberto(true)}
+              onFocus={() => setTecladoAberto(true)}
+              placeholder="Código do cupom"
+              aria-label="Código do cupom"
+            />
+            {codigoCupom && (
+              <BotaoTouch variante="perigo" onClick={() => setCodigoCupom('')}>
+                Limpar
+              </BotaoTouch>
+            )}
+            <BotaoTouch variante="destaque" onClick={aplicar} disabled={!codigoCupom.trim()}>
+              Aplicar
+            </BotaoTouch>
+          </div>
+          {tecladoAberto && (
+            <TecladoVirtual valor={codigoCupom} onChange={setCodigoCupom} maiusculas />
+          )}
         </div>
+        {erroCupom && <p className="erro">{erroCupom}</p>}
         {cupomAplicado && (
-          <p className="desconto">Desconto: {formatarCentavos(cupomAplicado.descontoCentavos)}</p>
+          <p className="desconto">
+            Cupom {cupomAplicado.cupom.codigo} aplicado — desconto de{' '}
+            {formatarCentavos(cupomAplicado.descontoCentavos)}
+          </p>
         )}
       </section>
 

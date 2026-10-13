@@ -1,4 +1,5 @@
 import { useKioskMode } from './hooks/useKioskMode';
+import { useConfig } from './contexts/ConfigContext';
 import { usePedido, type EtapaFluxo } from './contexts/PedidoContext';
 import { Cabecalho } from './components/Cabecalho';
 import { CardapioScreen } from './screens/Cardapio';
@@ -28,10 +29,11 @@ function TelaAtual({ etapa }: { etapa: EtapaFluxo }) {
 export function App() {
   useKioskMode();
   const { etapaAtual } = usePedido();
+  const { aparencia } = useConfig();
 
   return (
     <div className="app">
-      <Cabecalho />
+      <Cabecalho aparencia={aparencia} />
       <main className="app__conteudo">
         <TelaAtual etapa={etapaAtual} />
       </main>

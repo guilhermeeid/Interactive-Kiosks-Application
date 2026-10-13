@@ -4,6 +4,7 @@
 // LGPD: dado pessoal — exige consentimento/criptografia
 export interface ClienteFidelidade {
   id: string;
+  // O número de fidelidade é o CPF do cliente (11 dígitos).
   numeroFidelidade: string; // LGPD: dado pessoal — exige consentimento/criptografia
   pontos: number;
 }

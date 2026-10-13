@@ -10,6 +10,8 @@ export interface EmitirNotaFiscalParams {
 export interface NotaFiscalEmitida {
   pedidoId: string;
   numero: string;
+  // US 09: CPF que consta na nota emitida; ausente em nota sem identificação do consumidor.
+  cpfDestinatario?: string; // LGPD: dado pessoal — exige consentimento/criptografia
   urlDanfe: string;
   emitidaEm: string;
 }

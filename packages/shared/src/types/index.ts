@@ -6,3 +6,5 @@ export * from './Cliente';
 export * from './Cupom';
 export * from './Pagamento';
 export * from './Comprovante';
+export * from './ConfigTotem';
+export * from './Consentimento';

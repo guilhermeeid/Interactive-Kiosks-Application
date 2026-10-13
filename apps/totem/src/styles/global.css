@@ -17,6 +17,18 @@
   --cor-cafe-suave: #7a5c4b;
   --cor-borda: #f0dcc0;
   --cor-pontilhado: #f3e3cc;
+  --cor-perigo: #a61e1e;
+  --cor-perigo-clara: #fde3e1;
+
+  /* Tema definido pelo administrador (ver utils/tema.ts): ele escolhe o fundo, a barra
+     do topo (--cor-ketchup) e a cor do nome da loja; as demais abaixo são derivadas
+     delas por contraste. Os valores aqui são os da identidade padrão. */
+  --cor-fundo: #fff6e9;
+  --cor-fundo-texto: #3b2418;
+  --cor-fundo-texto-suave: #7a5c4b;
+  --cor-ketchup-texto: #fff;
+  --cor-preco: #d62828;
+  --cor-nome-loja: #fff;
 
   --fonte-titulo: 'Fredoka', 'Nunito', system-ui, sans-serif;
   --fonte-texto: 'Nunito', system-ui, sans-serif;
@@ -43,8 +55,8 @@ body,
 body {
   font-family: var(--fonte-texto);
   font-size: 1.05rem;
-  color: var(--cor-cafe);
-  background-color: var(--cor-creme);
+  color: var(--cor-fundo-texto);
+  background-color: var(--cor-fundo);
   background-image: radial-gradient(var(--cor-pontilhado) 1.5px, transparent 1.6px);
   background-size: 28px 28px;
   -webkit-font-smoothing: antialiased;
@@ -79,7 +91,7 @@ h3 {
   top: 0;
   z-index: 10;
   background: var(--cor-ketchup);
-  color: #fff;
+  color: var(--cor-ketchup-texto);
 }
 
 /* Faixa quadriculada tipo toalha de piquenique */
@@ -87,7 +99,8 @@ h3 {
   content: '';
   display: block;
   height: 14px;
-  background: repeating-conic-gradient(var(--cor-ketchup) 0 25%, #fff 0 50%) 0 0 / 28px 28px;
+  background: repeating-conic-gradient(var(--cor-ketchup) 0 25%, var(--cor-ketchup-texto) 0 50%)
+    0 0 / 28px 28px;
 }
 
 .cabecalho__conteudo {
@@ -108,6 +121,14 @@ h3 {
   place-items: center;
   font-size: 1.9rem;
   box-shadow: 0 3px 0 rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+/* Logotipo enviado pelo administrador: preenche o círculo, cortando as sobras */
+.cabecalho__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .cabecalho__nome {
@@ -115,6 +136,7 @@ h3 {
   font-size: 1.6rem;
   font-weight: 700;
   display: block;
+  color: var(--cor-nome-loja);
 }
 
 .cabecalho__slogan {
@@ -134,7 +156,7 @@ h3 {
 
 .tela__subtitulo {
   margin: 0.35rem 0 1.5rem;
-  color: var(--cor-cafe-suave);
+  color: var(--cor-fundo-texto-suave);
   font-size: 1.1rem;
 }
 
@@ -144,6 +166,31 @@ h3 {
   justify-content: space-between;
   gap: 1rem;
   margin-top: 2rem;
+}
+
+.tela__acoes-grupo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.tela__nota {
+  margin: 0.9rem 0 0;
+  text-align: right;
+  color: var(--cor-fundo-texto-suave);
+  font-size: 0.95rem;
+}
+
+/* Os cartões são sempre brancos, então o texto dentro deles não segue a cor do fundo */
+.cartao,
+.cardapio-item,
+.carrinho-item {
+  color: var(--cor-cafe);
+}
+
+.cartao .tela__subtitulo,
+.cartao .aviso {
+  color: var(--cor-cafe-suave);
 }
 
 .cartao {
@@ -166,16 +213,35 @@ h3 {
 }
 
 .erro {
-  background: var(--cor-ketchup-clara);
-  color: var(--cor-ketchup-escuro);
+  background: var(--cor-perigo-clara);
+  color: var(--cor-perigo);
   border-radius: 0.9rem;
   padding: 0.8rem 1.1rem;
   font-weight: 700;
 }
 
 .aviso {
-  color: var(--cor-cafe-suave);
+  color: var(--cor-fundo-texto-suave);
   font-size: 1.1rem;
+}
+
+/* Aviso que aparece e some sozinho (ex.: quantidade máxima atingida) */
+.aviso-flutuante {
+  position: fixed;
+  left: 50%;
+  bottom: 7rem;
+  z-index: 20;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  margin: 0;
+  padding: 0.9rem 1.4rem;
+  border-radius: 999px;
+  background: var(--cor-cafe);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: var(--sombra);
 }
 
 /* ---------- Botões e campos ---------- */
@@ -210,10 +276,16 @@ button:disabled {
   cursor: default;
 }
 
+/* Parece desabilitado, mas ainda recebe o toque para explicar por quê (ver
+   SeletorQuantidade) */
+.botao--inativo {
+  opacity: 0.45;
+}
+
 .botao--primario {
   background: var(--cor-ketchup);
   border-color: var(--cor-ketchup);
-  color: #fff;
+  color: var(--cor-ketchup-texto);
   box-shadow: 0 4px 0 var(--cor-ketchup-escuro);
 }
 
@@ -233,9 +305,9 @@ button:disabled {
 }
 
 .botao--perigo {
-  background: var(--cor-ketchup-clara);
+  background: var(--cor-perigo-clara);
   border-color: transparent;
-  color: var(--cor-ketchup-escuro);
+  color: var(--cor-perigo);
   box-shadow: none;
 }
 
@@ -265,6 +337,50 @@ input:focus {
   box-shadow: 0 0 0 4px var(--cor-mostarda-clara);
 }
 
+input:disabled {
+  opacity: 0.5;
+}
+
+/* ---------- Consentimento LGPD (US 29) ---------- */
+
+/* Aviso de finalidades + uma caixa de seleção por finalidade, antes do campo do dado */
+.consentimento {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.9rem;
+  background: var(--cor-creme);
+}
+
+.consentimento__aviso {
+  margin: 0;
+}
+
+.consentimento__opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Caixa grande, para ser marcada com o dedo */
+.consentimento__opcao input {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--cor-alface);
+}
+
+.consentimento small {
+  color: var(--cor-cafe-suave);
+}
+
 /* ---------- Cardápio ---------- */
 
 .cardapio-grid {
@@ -291,6 +407,13 @@ input:focus {
   font-size: 4.5rem;
 }
 
+/* Foto do item enviada pelo administrador: ocupa toda a área, cortando as sobras */
+.cardapio-item__foto img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+
 .cardapio-item--indisponivel .cardapio-item__foto {
   filter: grayscale(1);
   opacity: 0.5;
@@ -307,7 +430,7 @@ input:focus {
   right: 0.9rem;
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
-  background: var(--cor-ketchup-escuro);
+  background: var(--cor-perigo);
   color: #fff;
   font-weight: 700;
   font-size: 0.95rem;
@@ -335,17 +458,26 @@ input:focus {
 
 .cardapio-item__rodape {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-top: 0.75rem;
+  margin: 0.75rem 0;
+  min-height: 3.1rem;
+}
+
+/* No card do cardápio o seletor de quantidade é menor que o do carrinho */
+.cardapio-item__rodape .quantidade button {
+  width: 2.5rem;
+  min-height: 2.5rem;
+  font-size: 1.3rem;
 }
 
 .preco {
   font-family: var(--fonte-titulo);
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--cor-ketchup);
+  color: var(--cor-preco);
 }
 
 .barra-carrinho {
@@ -354,7 +486,7 @@ input:focus {
   display: flex;
   justify-content: center;
   padding: 2rem 0 1.5rem;
-  background: linear-gradient(transparent, var(--cor-creme) 45%);
+  background: linear-gradient(transparent, var(--cor-fundo) 45%);
 }
 
 .barra-carrinho button {
@@ -471,10 +603,13 @@ input:focus {
 
 .pontos-fidelidade {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   margin: 1.5rem 0 0;
   padding: 1rem 1.5rem;
+  color: var(--cor-cafe);
   background: var(--cor-papel);
   border: 2px solid var(--cor-mostarda);
   border-radius: var(--raio);
@@ -491,6 +626,34 @@ input:focus {
 }
 
 /* ---------- Identificação (teclado numérico) ---------- */
+
+.identificacao {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .identificacao {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* CPF válido, mas sem cadastro na fidelidade: informa sem soar como erro */
+.aviso-cadastro {
+  margin: 0 0 0.6rem;
+  padding: 0.8rem 1.1rem;
+  border-radius: 0.9rem;
+  background: var(--cor-mostarda-clara);
+  font-weight: 600;
+}
+
+/* CPF conferido e aceito para a nota fiscal */
+.aviso-cadastro--ok {
+  background: #dff2e4;
+  color: #1f6a41;
+}
 
 .valor-digitado {
   display: flex;
@@ -527,10 +690,63 @@ input:focus {
   gap: 0.75rem;
 }
 
+.cartao + .cartao {
+  margin-top: 1.25rem;
+}
+
 .desconto {
-  margin: 0.9rem 0 0;
+  margin: 0;
   color: var(--cor-alface);
   font-weight: 700;
+}
+
+.desconto-aplicado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.saldo-pontos {
+  margin: 0 0 0.9rem;
+}
+
+.cartao .erro {
+  margin: 0.9rem 0 0;
+}
+
+/* Resumo do pedido: subtotal, cada desconto em linha própria e o total a pagar */
+.resumo {
+  margin-top: 1.5rem;
+}
+
+/* Em cartão branco, para os descontos em verde se lerem com qualquer cor de fundo */
+.resumo__detalhe {
+  padding: 0.6rem 0;
+  background: var(--cor-papel);
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio);
+  color: var(--cor-cafe);
+}
+
+.resumo__linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0;
+  padding: 0.35rem 1.5rem;
+  font-family: var(--fonte-titulo);
+  font-size: 1.2rem;
+}
+
+.resumo__linha--desconto {
+  color: var(--cor-alface);
+  font-weight: 600;
+}
+
+.resumo .total {
+  margin-top: 0.6rem;
 }
 
 .formas-pagamento {
@@ -578,7 +794,7 @@ input:focus {
 .segmento button:disabled {
   opacity: 1;
   background: var(--cor-ketchup);
-  color: #fff;
+  color: var(--cor-ketchup-texto);
 }
 
 .sucesso {
@@ -589,6 +805,21 @@ input:focus {
 
 .sucesso__icone {
   font-size: 5rem;
+}
+
+/* Número do pedido: mesma hierarquia visual do "Pedido concluído!" */
+.numero-pedido {
+  margin: 0.4rem 0 0;
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--cor-preco);
+}
+
+.pontos-acumulados {
+  margin: 0 0 1rem;
+  font-weight: 700;
+  color: var(--cor-mostarda-escura);
 }
 
 .nota {

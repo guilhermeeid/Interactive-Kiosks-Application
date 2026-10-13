@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import { atualizarItemCarrinho, removerItemCarrinho } from '../../services/apiClient';
+import { useConfig } from '../../contexts/ConfigContext';
 import { usePedido } from '../../contexts/PedidoContext';
+import { useAvisoTemporario } from '../../hooks/useAvisoTemporario';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { SeletorQuantidade } from '../../components/SeletorQuantidade';
 import { formatarCentavos } from '../../utils/formatarMoeda';
 
 // US-02: reflexo do item adicionado a partir do Cardápio.
 // US-03: Revisar/editar carrinho.
+// Descontos (cupom e pontos) não aparecem aqui: só na tela de Pagamento.
 export function CarrinhoScreen() {
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, mostrarAviso] = useAvisoTemporario();
+  const { paginas } = useConfig().aparencia;
   const { pedidoId, pedido, recarregarPedido, irParaEtapa } = usePedido();
   const itens = pedido?.itens ?? [];
 
+  // Reduzir a zero remove o item, sem confirmação (decisão de produto).
   async function alterarQuantidade(itemCardapioId: string, quantidade: number) {
     try {
       await atualizarItemCarrinho(pedidoId, itemCardapioId, quantidade);
       await recarregarPedido();
+      setErro(null);
     } catch (err) {
       setErro((err as Error).message);
     }
@@ -24,6 +32,7 @@ export function CarrinhoScreen() {
     try {
       await removerItemCarrinho(pedidoId, itemCardapioId);
       await recarregarPedido();
+      setErro(null);
     } catch (err) {
       setErro((err as Error).message);
     }
@@ -31,8 +40,8 @@ export function CarrinhoScreen() {
 
   return (
     <div className="tela">
-      <h1 className="tela__titulo">Carrinho</h1>
-      <p className="tela__subtitulo">Confira seu pedido antes de continuar.</p>
+      <h1 className="tela__titulo">{paginas.carrinho.titulo}</h1>
+      <p className="tela__subtitulo">{paginas.carrinho.descricao}</p>
       {erro && <p className="erro">{erro}</p>}
       {itens.length === 0 && (
         <div className="vazio cartao">
@@ -52,21 +61,15 @@ export function CarrinhoScreen() {
                 {formatarCentavos(item.precoUnitarioCentavos)} cada
               </span>
             </div>
-            <div className="quantidade">
-              <BotaoTouch
-                aria-label={`Diminuir ${item.nome}`}
-                onClick={() => alterarQuantidade(item.itemCardapioId, item.quantidade - 1)}
-              >
-                −
-              </BotaoTouch>
-              <span className="quantidade__valor">{item.quantidade}</span>
-              <BotaoTouch
-                aria-label={`Aumentar ${item.nome}`}
-                onClick={() => alterarQuantidade(item.itemCardapioId, item.quantidade + 1)}
-              >
-                +
-              </BotaoTouch>
-            </div>
+            <SeletorQuantidade
+              valor={item.quantidade}
+              nomeItem={item.nome}
+              maximo={item.quantidadeMaxima}
+              aoMudar={(quantidade) => alterarQuantidade(item.itemCardapioId, quantidade)}
+              aoTocarNoLimite={() =>
+                mostrarAviso(`Quantidade máxima atingida: não há mais unidades de ${item.nome}.`)
+              }
+            />
             <strong className="carrinho-item__subtotal">
               {formatarCentavos(item.precoUnitarioCentavos * item.quantidade)}
             </strong>
@@ -77,6 +80,12 @@ export function CarrinhoScreen() {
         ))}
       </ul>
 
+      {aviso && (
+        <p className="aviso-flutuante" role="status">
+          {aviso}
+        </p>
+      )}
+
       <p className="total">
         <span>Total</span>
         <strong>{formatarCentavos(pedido?.valorTotalCentavos ?? 0)}</strong>
@@ -86,7 +95,8 @@ export function CarrinhoScreen() {
         <BotaoTouch onClick={() => irParaEtapa('cardapio')}>Voltar ao cardápio</BotaoTouch>
         <BotaoTouch
           variante="primario"
-          onClick={() => irParaEtapa('identificacao')}
+          // US 10: quem já pulou a identificação neste pedido não é perguntado de novo.
+          onClick={() => irParaEtapa(pedido?.semDadosPessoais ? 'pagamento' : 'identificacao')}
           disabled={itens.length === 0}
         >
           Continuar

@@ -12,7 +12,10 @@ export interface DestinoComprovante {
 
 export interface Comprovante {
   pedidoId: string;
-  destino: DestinoComprovante;
+  // Ausente quando o cliente concluiu o pedido sem receber comprovante por e-mail/SMS.
+  destino?: DestinoComprovante;
   notaFiscalUrl?: string;
+  // US 09: CPF que saiu na nota fiscal, já mascarado para exibição (***.456.789-**).
+  cpfNaNotaMascarado?: string;
   enviadoEm?: string;
 }

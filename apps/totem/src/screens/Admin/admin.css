@@ -1,0 +1,399 @@
+/* Tela de administrador (/admin). Reaproveita botões, cartões e cores de global.css,
+   mas com formulários comuns: aqui se usa teclado e mouse, não só toque. */
+
+.admin {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+  color: var(--cor-cafe);
+}
+
+/* No totem o cliente não seleciona texto; o administrador pode */
+.admin * {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+.admin h1 {
+  font-size: 1.8rem;
+}
+
+.admin h2 {
+  font-size: 1.35rem;
+  margin: 0.5rem 0 0;
+}
+
+.admin h3 {
+  font-size: 1.15rem;
+}
+
+.admin small {
+  display: block;
+  color: var(--cor-cafe-suave);
+  font-size: 0.9rem;
+}
+
+.admin button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.2rem;
+  font-size: 1rem;
+}
+
+.admin input[type='text'],
+.admin input[type='password'],
+.admin input[type='datetime-local'],
+.admin select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.7rem;
+  border: 2px solid var(--cor-borda);
+  background: var(--cor-papel);
+  color: var(--cor-cafe);
+  font-family: var(--fonte-texto);
+  font-size: 1rem;
+}
+
+.admin input:disabled {
+  opacity: 0.6;
+}
+
+.admin select:focus {
+  outline: none;
+  border-color: var(--cor-mostarda);
+  box-shadow: 0 0 0 4px var(--cor-mostarda-clara);
+}
+
+.admin input[type='checkbox'] {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--cor-ketchup);
+}
+
+.admin input[type='color'] {
+  flex: none;
+  width: 3.25rem;
+  min-height: 2.75rem;
+  padding: 0.2rem;
+  border-radius: 0.7rem;
+}
+
+.admin input[type='file'] {
+  min-height: 0;
+  padding: 0.4rem;
+  border-radius: 0.7rem;
+  font-size: 0.95rem;
+}
+
+/* ---------- Entrada (PIN) ---------- */
+
+.admin--entrada {
+  max-width: 420px;
+  padding-top: 3rem;
+}
+
+.admin--entrada form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.admin--entrada p {
+  margin: 0;
+}
+
+.admin--entrada .teclado-numerico {
+  margin: 0 auto;
+}
+
+/* ---------- Estrutura ---------- */
+
+.admin__topo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin__topo-acoes {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.admin__topo a {
+  color: var(--cor-ketchup);
+  font-weight: 700;
+}
+
+.admin__abas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.25rem 0;
+}
+
+.admin-secao,
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.admin-secao {
+  margin-bottom: 1.5rem;
+  padding: 1.5rem;
+  background: var(--cor-papel);
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
+.admin-secao > *,
+.admin-form > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.admin-form {
+  align-self: stretch;
+  padding: 1.25rem;
+  background: var(--cor-creme);
+  border-radius: var(--raio);
+}
+
+.admin-dica {
+  color: var(--cor-cafe-suave);
+}
+
+.admin-ok {
+  margin: 0;
+  padding: 0.8rem 1.1rem;
+  border-radius: 0.9rem;
+  background: #dff2e4;
+  color: #1f6a41;
+  font-weight: 700;
+}
+
+/* ---------- Campos ---------- */
+
+.admin-grade {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.admin-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.admin-campo__rotulo {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.admin-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  cursor: pointer;
+}
+
+.admin-cor {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ---------- Listas (categorias, produtos, cupons, clientes, pedidos, páginas) ---------- */
+
+.admin-lista {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.admin-linha {
+  display: grid;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 1rem;
+  background: var(--cor-papel);
+}
+
+.admin-linha--pagina {
+  grid-template-columns: 8rem 1fr 2fr;
+}
+
+.admin-linha--categoria {
+  grid-template-columns: 5rem 1fr auto;
+}
+
+.admin-linha--produto {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.admin-linha--finalidade {
+  grid-template-columns: 14rem 1fr;
+}
+
+/* Selo de situação: verde = aceito no totem; as demais dizem por que não é */
+.admin-situacao {
+  justify-self: start;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  background: var(--cor-perigo-clara);
+  color: var(--cor-perigo);
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-situacao--valido {
+  background: #dff2e4;
+  color: #1f6a41;
+}
+
+.admin-situacao--nao_vigente,
+.admin-situacao--esgotado {
+  background: var(--cor-mostarda-clara);
+  color: var(--cor-cafe);
+}
+
+/* Tabelas: cupons com seus atributos e auditoria do consentimento. Em tela estreita a
+   tabela rola de lado dentro da lista, em vez de espremer as colunas. */
+.admin-lista--tabela {
+  overflow-x: auto;
+}
+
+.admin-tabela {
+  align-self: stretch;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.admin-tabela th,
+.admin-tabela td {
+  padding: 0.55rem 0.45rem;
+  border-bottom: 1px solid var(--cor-borda);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.admin-tabela .admin-linha__acoes {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+/* Botões de linha de tabela são menores que os demais, para a linha caber na largura */
+.admin-tabela button {
+  min-height: 2.25rem;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.9rem;
+  box-shadow: none;
+}
+
+.admin-tabela th {
+  color: var(--cor-cafe-suave);
+  font-size: 0.85rem;
+}
+
+.admin-linha--cliente {
+  align-self: stretch;
+  grid-template-columns: 1fr 10rem auto;
+}
+
+.admin-linha--pedido {
+  grid-template-columns: auto 1fr auto;
+}
+
+.admin-linha__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .admin-linha {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-logo {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.admin-miniatura {
+  flex: none;
+  width: 3.5rem;
+  height: 3.5rem;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 0.8rem;
+  background: var(--cor-creme);
+  font-size: 2rem;
+}
+
+.admin-miniatura img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-numero {
+  min-width: 4.5rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 0.8rem;
+  background: var(--cor-cafe);
+  color: var(--cor-mostarda);
+  font-family: var(--fonte-titulo);
+  font-size: 1.8rem;
+  text-align: center;
+}
+
+/* ---------- Prévia da aparência ---------- */
+
+/* Recebe as variáveis do tema em rascunho (style inline), sem afetar o resto da tela */
+.admin-previa {
+  align-self: stretch;
+  overflow: hidden;
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio);
+}
+
+.admin-previa .cabecalho {
+  position: static;
+}
+
+.admin-previa__fundo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1.25rem 1.5rem;
+  color: var(--cor-fundo-texto);
+  background-color: var(--cor-fundo);
+  background-image: radial-gradient(var(--cor-pontilhado) 1.5px, transparent 1.6px);
+  background-size: 28px 28px;
+}
+
+.admin-previa__fundo .tela__titulo {
+  font-family: var(--fonte-titulo);
+}

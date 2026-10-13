@@ -1,12 +1,14 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerCors } from './plugins/cors';
 import { registerSensible } from './plugins/sensible';
+import { adminRoutes, configRoutes } from './modules/admin';
 import { cardapioRoutes } from './modules/cardapio';
 import { carrinhoRoutes } from './modules/carrinho';
 import { identificacaoRoutes } from './modules/identificacao';
 import { pagamentoRoutes } from './modules/pagamento';
 import { cupomRoutes } from './modules/cupom';
 import { comprovanteRoutes } from './modules/comprovante';
+import { consentimentoRoutes } from './modules/consentimento';
 
 // Monta a instância do Fastify: plugins de infraestrutura + rotas de cada módulo de
 // negócio do tier Básico (um por Épico do backlog).
@@ -16,11 +18,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerSensible(app);
   await registerCors(app);
 
+  // Configuração do totem (leitura pública) e tela de administrador (com PIN)
+  await app.register(configRoutes);
+  await app.register(adminRoutes, { prefix: '/admin' });
+
   // Épico 1 — Cardápio Digital e Carrinho
   await app.register(cardapioRoutes, { prefix: '/cardapio' });
   await app.register(carrinhoRoutes, { prefix: '/carrinho' });
 
-  // Épico 2 — Identificação do Cliente
+  // Épico 2 — Identificação do Cliente (e o consentimento LGPD que a antecede)
+  await app.register(consentimentoRoutes, { prefix: '/consentimento' });
   await app.register(identificacaoRoutes, { prefix: '/identificacao' });
 
   // Épico 3 — Pagamento e Cupons

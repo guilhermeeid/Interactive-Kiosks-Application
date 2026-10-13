@@ -5,9 +5,11 @@ export interface ItemCardapio {
   id: string;
   nome: string;
   descricao: string;
-  categoria: string;
+  categoria: string; // id de uma CategoriaCardapio
   precoCentavos: number;
-  imagemUrl?: string;
+  imagemUrl?: string; // foto do item: caminho servido pela API (/imagens/...)
+  icone?: string; // emoji exibido quando não há foto
+  estoque?: number; // unidades à venda; ausente = sem controle de quantidade
   disponivel: boolean;
 }
 

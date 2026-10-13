@@ -1,22 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ItemCardapio } from '@totem/shared';
-import { adicionarItemCarrinho, buscarCardapio } from '../../services/apiClient';
+import { adicionarItemCarrinho, buscarCardapio, urlImagem } from '../../services/apiClient';
+import { useConfig } from '../../contexts/ConfigContext';
 import { usePedido } from '../../contexts/PedidoContext';
+import { useAvisoTemporario } from '../../hooks/useAvisoTemporario';
 import { useFecharAoTocarFora } from '../../hooks/useFecharAoTocarFora';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { SeletorQuantidade } from '../../components/SeletorQuantidade';
 import { TecladoVirtual } from '../../components/TecladoVirtual';
 import { formatarCentavos } from '../../utils/formatarMoeda';
-import { CATEGORIAS, visualCategoria } from '../../utils/visualCategoria';
+import { visualItem } from '../../utils/visualCategoria';
 
 // US-01: Visualizar cardápio por categorias.
 // US-02: Buscar item pelo nome (filtro em tempo real, com teclado virtual).
+// US-03: Escolher a quantidade e adicionar ao carrinho.
 export function CardapioScreen() {
+  const { aparencia, categorias, exibirTodos } = useConfig();
   const [itens, setItens] = useState<ItemCardapio[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [categoria, setCategoria] = useState<string | null>(null);
+  // Sem a aba "Todos", o cardápio abre na primeira categoria.
+  const [categoria, setCategoria] = useState<string | null>(
+    exibirTodos ? null : (categorias[0]?.id ?? null),
+  );
   const [busca, setBusca] = useState('');
   const [tecladoAberto, setTecladoAberto] = useState(false);
+  // Quantidade escolhida em cada card antes de adicionar (padrão: 1).
+  const [quantidades, setQuantidades] = useState<Record<string, number>>({});
+  const [aviso, mostrarAviso] = useAvisoTemporario();
   const buscaRef = useRef<HTMLDivElement>(null);
   const { pedidoId, pedido, recarregarPedido, irParaEtapa } = usePedido();
 
@@ -47,27 +58,33 @@ export function CardapioScreen() {
     };
   }, [categoria, busca]);
 
-  // US-02: Adicionar ao carrinho
-  async function adicionar(item: ItemCardapio) {
+  function definirQuantidade(itemId: string, quantidade: number) {
+    setQuantidades((atuais) => ({ ...atuais, [itemId]: quantidade }));
+  }
+
+  // US-03: Adicionar ao carrinho
+  async function adicionar(item: ItemCardapio, quantidade: number) {
     try {
       await adicionarItemCarrinho(pedidoId, {
         itemCardapioId: item.id,
         nome: item.nome,
-        quantidade: 1,
+        quantidade,
       });
       await recarregarPedido();
+      definirQuantidade(item.id, 1);
+      setErro(null);
     } catch (err) {
       setErro((err as Error).message);
     }
   }
 
-  const quantidadeNoCarrinho =
-    pedido?.itens.reduce((total, item) => total + item.quantidade, 0) ?? 0;
+  const itensNoCarrinho = pedido?.itens ?? [];
+  const quantidadeNoCarrinho = itensNoCarrinho.reduce((total, item) => total + item.quantidade, 0);
 
   return (
     <div className="tela">
-      <h1 className="tela__titulo">Cardápio</h1>
-      <p className="tela__subtitulo">Escolha seus favoritos e monte seu pedido.</p>
+      <h1 className="tela__titulo">{aparencia.paginas.cardapio.titulo}</h1>
+      <p className="tela__subtitulo">{aparencia.paginas.cardapio.descricao}</p>
 
       <div className="busca" ref={buscaRef}>
         <div className="busca__campo">
@@ -95,19 +112,21 @@ export function CardapioScreen() {
       </div>
 
       <div className="categorias" role="tablist" aria-label="Categorias do cardápio">
-        <BotaoTouch
-          variante={categoria === null ? 'destaque' : 'padrao'}
-          onClick={() => setCategoria(null)}
-        >
-          Todos
-        </BotaoTouch>
-        {CATEGORIAS.map((cat) => (
+        {exibirTodos && (
+          <BotaoTouch
+            variante={categoria === null ? 'destaque' : 'padrao'}
+            onClick={() => setCategoria(null)}
+          >
+            Todos
+          </BotaoTouch>
+        )}
+        {categorias.map((cat) => (
           <BotaoTouch
             key={cat.id}
             variante={categoria === cat.id ? 'destaque' : 'padrao'}
             onClick={() => setCategoria(cat.id)}
           >
-            {visualCategoria(cat.id).emoji} {cat.nome}
+            {cat.icone} {cat.nome}
           </BotaoTouch>
         ))}
       </div>
@@ -122,7 +141,13 @@ export function CardapioScreen() {
 
       <div className="cardapio-grid">
         {itens.map((item) => {
-          const visual = visualCategoria(item.categoria);
+          const visual = visualItem(item, categorias);
+          const noCarrinho =
+            itensNoCarrinho.find((i) => i.itemCardapioId === item.id)?.quantidade ?? 0;
+          // Com controle de estoque, o cliente só escolhe o que ainda não pôs no carrinho.
+          const restante = item.estoque === undefined ? undefined : item.estoque - noCarrinho;
+          const limiteNoCarrinho = item.disponivel && restante !== undefined && restante <= 0;
+          const quantidade = Math.min(quantidades[item.id] ?? 1, restante ?? Infinity);
           return (
             <article
               key={item.id}
@@ -135,7 +160,7 @@ export function CardapioScreen() {
                 style={{ background: visual.fundo }}
                 aria-hidden="true"
               >
-                {visual.emoji}
+                {item.imagemUrl ? <img src={urlImagem(item.imagemUrl)} alt="" /> : visual.icone}
               </div>
               {!item.disponivel && <span className="selo-esgotado">Esgotado</span>}
               <div className="cardapio-item__corpo">
@@ -143,19 +168,41 @@ export function CardapioScreen() {
                 <p>{item.disponivel ? item.descricao : 'Item indisponível no momento'}</p>
                 <div className="cardapio-item__rodape">
                   <span className="preco">{formatarCentavos(item.precoCentavos)}</span>
-                  <BotaoTouch
-                    variante="primario"
-                    onClick={() => adicionar(item)}
-                    disabled={!item.disponivel}
-                  >
-                    {item.disponivel ? 'Adicionar' : 'Indisponível'}
-                  </BotaoTouch>
+                  {item.disponivel && !limiteNoCarrinho && (
+                    <SeletorQuantidade
+                      valor={quantidade}
+                      nomeItem={item.nome}
+                      minimo={1}
+                      maximo={restante}
+                      aoMudar={(nova) => definirQuantidade(item.id, nova)}
+                      aoTocarNoLimite={() =>
+                        mostrarAviso(`Quantidade máxima atingida: não há mais unidades de ${item.nome}.`)
+                      }
+                    />
+                  )}
                 </div>
+                <BotaoTouch
+                  variante="primario"
+                  onClick={() => adicionar(item, quantidade)}
+                  disabled={!item.disponivel || limiteNoCarrinho}
+                >
+                  {!item.disponivel
+                    ? 'Indisponível'
+                    : limiteNoCarrinho
+                      ? 'Máximo no carrinho'
+                      : 'Adicionar'}
+                </BotaoTouch>
               </div>
             </article>
           );
         })}
       </div>
+
+      {aviso && (
+        <p className="aviso-flutuante" role="status">
+          {aviso}
+        </p>
+      )}
 
       <div className="barra-carrinho">
         <BotaoTouch
@@ -164,6 +211,7 @@ export function CardapioScreen() {
           disabled={quantidadeNoCarrinho === 0}
         >
           🛒 Ver carrinho ({quantidadeNoCarrinho})
+          {quantidadeNoCarrinho > 0 && ` · ${formatarCentavos(pedido?.valorTotalCentavos ?? 0)}`}
         </BotaoTouch>
       </div>
     </div>

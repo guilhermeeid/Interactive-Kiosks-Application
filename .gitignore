@@ -10,6 +10,10 @@ build/
 .env.local
 infra/.env
 
+# Dados do totem gravados pela API (configuração do administrador, fotos, estoque,
+# clientes de fidelidade): são da instalação, não do código
+apps/api/data/
+
 # Logs
 *.log
 npm-debug.log*

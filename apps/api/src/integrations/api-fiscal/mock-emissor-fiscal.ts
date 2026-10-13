@@ -12,6 +12,7 @@ export class MockEmissorFiscal implements EmissorFiscal {
     return {
       pedidoId: params.pedido.id,
       numero,
+      cpfDestinatario: params.cpfNaNota,
       urlDanfe: `https://mock-fiscal.local/danfe/${numero}`,
       emitidaEm: new Date().toISOString(),
     };

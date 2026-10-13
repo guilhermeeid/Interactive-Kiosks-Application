@@ -1,27 +1,22 @@
-// Ilustração decorativa (emoji + cor de fundo) por categoria do cardápio.
-// Não substitui a foto do item — é só a moldura visual dos cards.
-export interface VisualCategoria {
-  emoji: string;
+import type { CategoriaCardapio, ItemCardapio } from '@totem/shared';
+
+// Moldura visual dos cards do cardápio: cor de fundo da área da foto e o emoji usado
+// quando o item não tem foto. Nomes, ícones e ordem das categorias vêm da configuração
+// do administrador; aqui fica só a paleta, atribuída pela posição da categoria.
+const FUNDOS = ['#ffe3b3', '#fff0b8', '#d8eef5', '#f6ddf0', '#dff2d8', '#e6e0f8'];
+const FUNDO_PADRAO = '#f3e3cc';
+const ICONE_PADRAO = '🍽️';
+
+export interface VisualItem {
+  icone: string;
   fundo: string;
 }
 
-const VISUAIS: Record<string, VisualCategoria> = {
-  lanches: { emoji: '🍔', fundo: '#ffe3b3' },
-  acompanhamentos: { emoji: '🍟', fundo: '#fff0b8' },
-  bebidas: { emoji: '🥤', fundo: '#d8eef5' },
-  sobremesas: { emoji: '🍨', fundo: '#f6ddf0' },
-};
-
-// US-01: categorias exibidas no totem, na ordem das abas (id = categoria do item).
-export const CATEGORIAS: { id: string; nome: string }[] = [
-  { id: 'lanches', nome: 'Lanches' },
-  { id: 'acompanhamentos', nome: 'Acompanhamentos' },
-  { id: 'bebidas', nome: 'Bebidas' },
-  { id: 'sobremesas', nome: 'Sobremesas' },
-];
-
-const VISUAL_PADRAO: VisualCategoria = { emoji: '🍽️', fundo: '#f3e3cc' };
-
-export function visualCategoria(categoria: string): VisualCategoria {
-  return VISUAIS[categoria] ?? VISUAL_PADRAO;
+// O ícone do próprio item vence o da categoria; sem nenhum dos dois, usa o prato padrão.
+export function visualItem(item: ItemCardapio, categorias: CategoriaCardapio[]): VisualItem {
+  const indice = categorias.findIndex((categoria) => categoria.id === item.categoria);
+  return {
+    icone: item.icone ?? categorias[indice]?.icone ?? ICONE_PADRAO,
+    fundo: indice === -1 ? FUNDO_PADRAO : FUNDOS[indice % FUNDOS.length],
+  };
 }

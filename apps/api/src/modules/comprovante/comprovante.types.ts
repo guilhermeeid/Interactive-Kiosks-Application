@@ -8,4 +8,8 @@ export interface EnviarComprovanteBody {
   telefone?: string; // LGPD: dado pessoal — exige consentimento/criptografia
 }
 
+export interface DispensarComprovanteBody {
+  pedidoId: string;
+}
+
 export type EnviarComprovanteResponse = Comprovante;

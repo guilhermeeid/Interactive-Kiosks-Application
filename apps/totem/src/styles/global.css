@@ -1,5 +1,5 @@
-/* Estilos base do modo kiosk: telas touch fullscreen, sem seleção de texto,
-   sem cursor de mouse e com alvos de toque grandes. */
+/* Estilos base do modo kiosk: telas touch de pé (9:16), sem seleção de texto e com
+   alvos de toque grandes. */
 
 /* Identidade visual: tema de lanchonete — ketchup, mostarda e creme, com uma
    faixa quadriculada de toalha de piquenique no cabeçalho. */
@@ -60,8 +60,6 @@ body {
   background-image: radial-gradient(var(--cor-pontilhado) 1.5px, transparent 1.6px);
   background-size: 28px 28px;
   -webkit-font-smoothing: antialiased;
-  /* TODO: voltar a esconder o cursor no modo kiosk (sem mouse) com `cursor: none;`.
-     Temporariamente visível para desenvolvimento e apresentações com mouse. */
   overscroll-behavior: none;
 }
 
@@ -76,14 +74,68 @@ h3 {
 
 /* ---------- Estrutura geral ---------- */
 
-.app {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
+/* Totem de pé (9:16). 1rem = 2,22% da largura da tela: 24px num totem de 1080px. No
+   monitor do computador, o totem vira uma coluna central nessa proporção e tudo se
+   ajusta junto, já que as medidas são em rem. */
+html.modo-totem {
+  font-size: calc(min(100vw, 56.25vh) * 0.0222);
 }
 
+/* Faixas laterais quando a tela não é de pé (ex.: monitor do computador) */
+html.modo-totem body {
+  background: #1d1410;
+}
+
+/* Item 12: cursor redondo cinza translúcido com borda branca, como o do modo de teste
+   do Figma. Ao pressionar, encolhe e escurece. Em toque não aparece cursor algum. */
+html.modo-totem,
+html.modo-totem * {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cdefs%3E%3CradialGradient id='v' cx='0.38' cy='0.32' r='0.7'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='0.55'/%3E%3Cstop offset='0.5' stop-color='%239a9a9a' stop-opacity='0.35'/%3E%3Cstop offset='1' stop-color='%235c5c5c' stop-opacity='0.45'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='20' cy='20' r='16.4' fill='none' stroke='%23000' stroke-opacity='0.2'/%3E%3Ccircle cx='20' cy='20' r='15' fill='url(%23v)' stroke='%23fff' stroke-width='2.4'/%3E%3C/svg%3E")
+      20 20,
+    auto !important;
+}
+
+html.modo-totem *:active {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cdefs%3E%3CradialGradient id='v' cx='0.38' cy='0.32' r='0.7'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='0.75'/%3E%3Cstop offset='0.5' stop-color='%239a9a9a' stop-opacity='0.55'/%3E%3Cstop offset='1' stop-color='%235c5c5c' stop-opacity='0.65'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='20' cy='20' r='13.4' fill='none' stroke='%23000' stroke-opacity='0.2'/%3E%3Ccircle cx='20' cy='20' r='12' fill='url(%23v)' stroke='%23fff' stroke-width='2.4'/%3E%3C/svg%3E")
+      20 20,
+    auto !important;
+}
+
+.moldura {
+  height: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* O transform faz desta caixa a referência dos elementos fixos (avisos, janelas), que
+   ficam dentro da tela de pé em vez de se espalharem pelo monitor. */
+.app {
+  position: relative;
+  width: min(100vw, 56.25vh);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateZ(0);
+  color: var(--cor-fundo-texto);
+  background-color: var(--cor-fundo);
+  background-image: radial-gradient(var(--cor-pontilhado) 0.09rem, transparent 0.1rem);
+  background-size: 1.75rem 1.75rem;
+}
+
+/* Só o conteúdo rola; o cabeçalho fica fixo no alto */
 .app__conteudo {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.app__conteudo::-webkit-scrollbar {
+  display: none;
 }
 
 .cabecalho {
@@ -98,9 +150,9 @@ h3 {
 .cabecalho::after {
   content: '';
   display: block;
-  height: 14px;
-  background: repeating-conic-gradient(var(--cor-ketchup) 0 25%, var(--cor-ketchup-texto) 0 50%)
-    0 0 / 28px 28px;
+  height: 0.875rem;
+  background: repeating-conic-gradient(var(--cor-ketchup) 0 25%, var(--cor-ketchup-texto) 0 50%) 0
+    0 / 1.75rem 1.75rem;
 }
 
 .cabecalho__conteudo {
@@ -174,13 +226,6 @@ h3 {
   gap: 1rem;
 }
 
-.tela__nota {
-  margin: 0.9rem 0 0;
-  text-align: right;
-  color: var(--cor-fundo-texto-suave);
-  font-size: 0.95rem;
-}
-
 /* Os cartões são sempre brancos, então o texto dentro deles não segue a cor do fundo */
 .cartao,
 .cardapio-item,
@@ -204,12 +249,6 @@ h3 {
 .cartao h2 {
   font-size: 1.3rem;
   margin-bottom: 0.9rem;
-}
-
-.grade-2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.25rem;
 }
 
 .erro {
@@ -383,35 +422,175 @@ input:disabled {
 
 /* ---------- Cardápio ---------- */
 
+.tela-cardapio {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Item 5: categorias no topo, à esquerda ou à direita, conforme o administrador */
+.cardapio {
+  flex: 1;
+  display: grid;
+  align-items: start;
+  gap: 1rem;
+  padding: 1rem 1rem 0;
+}
+
+.cardapio--topo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cardapio--esquerda {
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+}
+
+.cardapio--direita {
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
+}
+
+.cardapio--direita .abas-categorias {
+  order: 2;
+}
+
+.abas-categorias {
+  position: sticky;
+  top: 1rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.cardapio--topo .abas-categorias {
+  top: 0;
+  flex-direction: row;
+  overflow-x: auto;
+  margin: -1rem -1rem 0;
+  padding: 0.8rem 1rem;
+  background: var(--cor-fundo);
+  scrollbar-width: none;
+}
+
+.aba-categoria {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0.75rem 0.5rem;
+  border-radius: 1.1rem;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  text-align: center;
+  box-shadow: 0 3px 0 var(--cor-borda);
+}
+
+.cardapio--topo .aba-categoria {
+  min-width: 6.5rem;
+}
+
+.aba-categoria > span[aria-hidden='true'] {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+/* Item 8: ícone da categoria enviado como imagem */
+.icone-categoria {
+  width: 2.6rem;
+  height: 2.6rem;
+  object-fit: contain;
+}
+
+.aba-categoria--ativa {
+  background: var(--cor-ketchup);
+  border-color: var(--cor-ketchup);
+  color: var(--cor-ketchup-texto);
+  box-shadow: 0 3px 0 var(--cor-ketchup-escuro);
+}
+
+.cardapio__conteudo {
+  min-width: 0;
+  padding-bottom: 1.25rem;
+}
+
+/* Item 8: capa da categoria aberta */
+.cardapio__capa {
+  display: block;
+  width: 100%;
+  aspect-ratio: 27 / 10;
+  margin-bottom: 1rem;
+  object-fit: cover;
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
 .cardapio-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.cardapio--topo .cardapio-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .cardapio-item {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0 0 0.9rem;
   overflow: hidden;
+  text-align: left;
+  font-family: var(--fonte-texto);
+  font-weight: 400;
   background: var(--cor-papel);
   border: 2px solid var(--cor-borda);
   border-radius: var(--raio);
   box-shadow: var(--sombra);
 }
 
+.cardapio-item:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: var(--sombra);
+}
+
 .cardapio-item__foto {
-  height: 150px;
+  height: 7.5rem;
   display: grid;
   place-items: center;
-  font-size: 4.5rem;
+  overflow: hidden;
+  font-size: 3.5rem;
 }
 
 /* Foto do item enviada pelo administrador: ocupa toda a área, cortando as sobras */
 .cardapio-item__foto img {
   width: 100%;
-  height: 150px;
+  height: 100%;
   object-fit: cover;
+}
+
+.cardapio-item__nome {
+  padding: 0.4rem 0.9rem 0;
+  font-family: var(--fonte-titulo);
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.cardapio-item .preco {
+  padding: 0 0.9rem;
+  font-size: 1.15rem;
+}
+
+.cardapio-item__indisponivel {
+  padding: 0 0.9rem;
+  color: var(--cor-cafe-suave);
+  font-size: 0.9rem;
 }
 
 .cardapio-item--indisponivel .cardapio-item__foto {
@@ -426,51 +605,16 @@ input:disabled {
 
 .selo-esgotado {
   position: absolute;
-  top: 0.9rem;
-  right: 0.9rem;
-  padding: 0.3rem 0.8rem;
+  top: 0.6rem;
+  right: 0.6rem;
+  padding: 0.25rem 0.7rem;
   border-radius: 999px;
   background: var(--cor-perigo);
   color: #fff;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-}
-
-.cardapio-item__corpo {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 1rem 1.25rem 1.25rem;
-}
-
-.cardapio-item__corpo h2 {
-  font-size: 1.35rem;
-}
-
-.cardapio-item__corpo p {
-  flex: 1;
-  margin: 0;
-  color: var(--cor-cafe-suave);
-}
-
-.cardapio-item__rodape {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0.75rem 0;
-  min-height: 3.1rem;
-}
-
-/* No card do cardápio o seletor de quantidade é menor que o do carrinho */
-.cardapio-item__rodape .quantidade button {
-  width: 2.5rem;
-  min-height: 2.5rem;
-  font-size: 1.3rem;
 }
 
 .preco {
@@ -480,19 +624,28 @@ input:disabled {
   color: var(--cor-preco);
 }
 
-.barra-carrinho {
+/* Barra fixa no pé do cardápio: câmera, carrinho e finalizar */
+.barra-acoes {
   position: sticky;
   bottom: 0;
-  display: flex;
-  justify-content: center;
-  padding: 2rem 0 1.5rem;
-  background: linear-gradient(transparent, var(--cor-fundo) 45%);
+  z-index: 6;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem 1.1rem;
+  background: var(--cor-papel);
+  border-top: 2px solid var(--cor-borda);
+  box-shadow: 0 -6px 18px rgba(59, 36, 24, 0.08);
 }
 
-.barra-carrinho button {
-  min-width: min(360px, 100%);
+.barra-acoes button {
   min-height: 4rem;
-  font-size: 1.3rem;
+  padding: 0.6rem 1rem;
+  font-size: 1.1rem;
+}
+
+.barra-acoes__finalizar {
+  min-width: 9rem;
 }
 
 /* ---------- Carrinho ---------- */
@@ -516,6 +669,10 @@ input:disabled {
   border: 2px solid var(--cor-borda);
   border-radius: var(--raio);
   box-shadow: var(--sombra);
+}
+
+.carrinho-item__descricao {
+  min-width: 0;
 }
 
 .carrinho-item__nome {
@@ -562,12 +719,6 @@ input:disabled {
   font-family: var(--fonte-titulo);
   font-size: 1.3rem;
   font-weight: 700;
-}
-
-@media (max-width: 640px) {
-  .carrinho-item {
-    grid-template-columns: 1fr auto;
-  }
 }
 
 .vazio {
@@ -628,16 +779,18 @@ input:disabled {
 /* ---------- Identificação (teclado numérico) ---------- */
 
 .identificacao {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 1.5rem;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-@media (max-width: 640px) {
-  .identificacao {
-    grid-template-columns: 1fr;
-  }
+.identificacao .teclado-numerico {
+  align-self: center;
+  width: 100%;
+}
+
+.botao-camera {
+  margin-top: 0.5rem;
 }
 
 /* CPF válido, mas sem cadastro na fidelidade: informa sem soar como erro */
@@ -673,7 +826,7 @@ input:disabled {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.6rem;
-  max-width: 300px;
+  max-width: 19rem;
 }
 
 .teclado-numerico button {
@@ -749,9 +902,51 @@ input:disabled {
   margin-top: 0.6rem;
 }
 
+/* Item 11: "Para comer aqui" ou "Para levar", antes de escolher a forma de pagamento */
+.consumo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.consumo__opcao {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 7rem;
+  border-radius: var(--raio);
+  font-size: 1.25rem;
+}
+
+.consumo__opcao span {
+  font-size: 2.5rem;
+}
+
+.consumo__opcao--ativa {
+  background: var(--cor-mostarda);
+  border-color: var(--cor-mostarda-escura);
+  box-shadow: 0 4px 0 var(--cor-mostarda-escura);
+}
+
+/* Item 3: "Incluir o mesmo CPF do programa de fidelidade?" */
+.cpf-escolha {
+  margin: 0 0 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.9rem;
+  background: var(--cor-creme);
+}
+
+.cpf-escolha p {
+  margin: 0 0 0.8rem;
+  font-weight: 700;
+}
+
 .formas-pagamento {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   gap: 1rem;
   margin: 1.5rem 0;
 }
@@ -841,14 +1036,7 @@ input:disabled {
 }
 
 .busca__campo input {
-  flex: 1 1 260px;
-}
-
-.categorias {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-bottom: 1.5rem;
+  flex: 1 1 12rem;
 }
 
 .teclado-virtual {
@@ -882,4 +1070,411 @@ input:disabled {
 .teclado-virtual__linha .teclado-virtual__espaco {
   flex: 4 1 0;
   max-width: 20rem;
+}
+
+/* ---------- Tela 0: "Toque para começar" (item 10) ---------- */
+
+/* A tela inteira é um botão: tocar em qualquer lugar começa o pedido */
+.inicio {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+.inicio:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.inicio__vitrine {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* As imagens ficam empilhadas; só a da vez aparece, com transição suave */
+.inicio__anuncio {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+.inicio__anuncio--ativo {
+  opacity: 1;
+}
+
+/* Sem publicidade: a marca da loja no centro */
+.inicio__marca {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.inicio__marca-logo,
+.inicio__logo {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--cor-mostarda);
+  box-shadow: var(--sombra);
+}
+
+.inicio__marca-logo {
+  width: 12rem;
+  height: 12rem;
+  font-size: 6.5rem;
+}
+
+.inicio__marca-logo img,
+.inicio__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inicio__marca strong {
+  font-family: var(--fonte-titulo);
+  font-size: 3rem;
+  line-height: 1.1;
+}
+
+.inicio__marca span:last-child {
+  color: var(--cor-fundo-texto-suave);
+  font-size: 1.4rem;
+}
+
+.inicio__logo {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  width: 4.5rem;
+  height: 4.5rem;
+  font-size: 2.5rem;
+}
+
+/* Bolinhas: a da imagem atual se alonga e enche durante o tempo dela */
+.inicio__bolinhas {
+  position: absolute;
+  right: 0;
+  bottom: 1.25rem;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.bolinha {
+  position: relative;
+  width: 0.8rem;
+  height: 0.8rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  transition: width 0.3s ease;
+}
+
+.bolinha--ativa {
+  width: 2.6rem;
+}
+
+.bolinha--ativa::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  transform-origin: left;
+  animation: bolinha-tempo var(--duracao, 6s) linear forwards;
+}
+
+@keyframes bolinha-tempo {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Barra fixa no pé, com a faixa quadriculada do cabeçalho */
+.inicio__barra {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1.9rem 1.5rem 2.1rem;
+  background: var(--cor-ketchup);
+  color: var(--cor-ketchup-texto);
+  text-align: center;
+}
+
+.inicio__barra::before {
+  content: '';
+  position: absolute;
+  top: -0.875rem;
+  right: 0;
+  left: 0;
+  height: 0.875rem;
+  background: repeating-conic-gradient(var(--cor-ketchup) 0 25%, var(--cor-ketchup-texto) 0 50%) 0
+    0 / 1.75rem 1.75rem;
+}
+
+.inicio__barra strong {
+  font-family: var(--fonte-titulo);
+  font-size: 2.3rem;
+  animation: pulsar 1.8s ease-in-out infinite;
+}
+
+.inicio__barra span {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+@keyframes pulsar {
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inicio__barra strong {
+    animation: none;
+  }
+
+  .inicio__anuncio {
+    transition: none;
+  }
+}
+
+/* ---------- Janelas (detalhe do item, câmera, termos) ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(29, 20, 16, 0.55);
+}
+
+.modal__janela {
+  width: 100%;
+  max-width: 48rem;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  overflow: hidden;
+  color: var(--cor-cafe);
+  background: var(--cor-papel);
+  border-radius: var(--raio);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: modal-subir 0.2s ease;
+}
+
+@keyframes modal-subir {
+  from {
+    opacity: 0;
+    translate: 0 1.5rem;
+  }
+}
+
+.modal__titulo {
+  font-size: 1.6rem;
+}
+
+.modal__conteudo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* "Fechar/Voltar" à esquerda, ação principal à direita */
+.modal__acoes {
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.modal__acoes button {
+  flex: 1 1 auto;
+}
+
+.item-detalhe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.item-detalhe__foto {
+  height: 16rem;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 1rem;
+  font-size: 7rem;
+}
+
+.item-detalhe__foto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.item-detalhe p {
+  margin: 0;
+  color: var(--cor-cafe-suave);
+  font-size: 1.1rem;
+}
+
+.item-detalhe .item-detalhe__combo {
+  color: var(--cor-cafe);
+  font-weight: 700;
+}
+
+.item-detalhe__rodape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.item-detalhe .preco {
+  font-size: 1.7rem;
+}
+
+/* ---------- Termos e Condições (item 4) ---------- */
+
+/* "Termos e Condições" sublinhado, no meio do texto, mas com área de toque de botão */
+.link-termos {
+  display: inline;
+  min-height: 0;
+  padding: 0.2rem 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.link-termos:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.termos {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.termos__qr {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: var(--cor-creme);
+}
+
+.termos__qr p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.termos__texto h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.termos__texto p {
+  margin: 0 0 0.5rem;
+  line-height: 1.45;
+}
+
+.termos__versao {
+  color: var(--cor-cafe-suave);
+  font-size: 0.9rem;
+}
+
+.codigo-qr {
+  flex: none;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 0.6rem;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.codigo-qr--carregando {
+  background: var(--cor-creme);
+}
+
+/* ---------- Câmera: cupom (QR ou código de barras) e cartão de fidelidade ---------- */
+
+.leitor-codigo {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 0.75rem;
+  border-radius: 1rem;
+  background: #000;
+}
+
+/* Espelhada, como um espelho: mover o código para a direita move a imagem para a direita */
+.leitor-codigo video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* Moldura larga: cabe um código de barras deitado e também um QR Code */
+.leitor-codigo__mira {
+  position: absolute;
+  inset: 26% 8%;
+  border: 0.25rem solid rgba(255, 255, 255, 0.9);
+  border-radius: 1rem;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease;
+}
+
+/* Código lido (conferindo ou com aviso): a moldura para de procurar */
+.leitor-codigo--pausado .leitor-codigo__mira {
+  border-color: var(--cor-mostarda);
+}
+
+.leitor-codigo__falha .erro {
+  margin: 0 0 0.5rem;
 }

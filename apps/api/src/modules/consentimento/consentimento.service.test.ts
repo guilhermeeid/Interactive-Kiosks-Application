@@ -5,11 +5,10 @@ import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
 import {
   informarCpfNota,
   informarFidelidade,
-  pularIdentificacao,
   usarPontos,
 } from '../identificacao/identificacao.service';
 import { registrarConsentimentos } from './consentimento.service';
-import { obterTermo, VERSAO_TERMO } from './termo';
+import { obterTermo, paginaTermos, VERSAO_TERMO } from './termo';
 
 const CPF_CADASTRADO = '12345678909';
 
@@ -169,24 +168,52 @@ describe('sem consentimento, o dado pessoal não é guardado', () => {
   });
 });
 
-// US 10
-describe('depois de pular a identificação', () => {
-  it('a API não aceita mais consentimento nem dados pessoais para o pedido', async () => {
+// US 10: cada dado pessoal é perguntado uma vez só.
+describe('finalidade recusada', () => {
+  it('não volta a ser aceita no mesmo pedido, e o dado dela é recusado', async () => {
     const pedidoId = randomUUID();
-    await pularIdentificacao({ pedidoId, versaoTermo: VERSAO_TERMO });
+    await registrarConsentimentos({
+      pedidoId,
+      versaoTermo: VERSAO_TERMO,
+      decisoes: { fidelidade: false },
+    });
 
     await expect(
-      registrarConsentimentos({ pedidoId, versaoTermo: VERSAO_TERMO, decisoes: { cpf_nota: true } }),
-    ).rejects.toMatchObject({ statusCode: 409, message: 'Este pedido segue sem dados pessoais' });
+      registrarConsentimentos({ pedidoId, versaoTermo: VERSAO_TERMO, decisoes: { fidelidade: true } }),
+    ).rejects.toMatchObject({ statusCode: 409, message: 'Você já recusou esse uso de dado neste pedido' });
     await expect(
-      registrarConsentimentos({
-        pedidoId,
-        versaoTermo: VERSAO_TERMO,
-        decisoes: { comprovante: true },
-      }),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    await expect(informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO })).rejects.toMatchObject({
-      statusCode: 403,
+      informarFidelidade({ pedidoId, numeroFidelidade: CPF_CADASTRADO }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('recusar uma finalidade não impede perguntar as outras depois', async () => {
+    const pedidoId = randomUUID();
+    // Pulou a fidelidade no início...
+    await registrarConsentimentos({
+      pedidoId,
+      versaoTermo: VERSAO_TERMO,
+      decisoes: { fidelidade: false },
     });
+    // ...e no pagamento aceita o CPF na nota, e no fim o comprovante.
+    await registrarConsentimentos({ pedidoId, versaoTermo: VERSAO_TERMO, decisoes: { cpf_nota: true } });
+    expect((await informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO })).cpfNaNota).toBe(CPF_CADASTRADO);
+    const pedido = await registrarConsentimentos({
+      pedidoId,
+      versaoTermo: VERSAO_TERMO,
+      decisoes: { comprovante: true },
+    });
+    expect(pedido.consentimentos).toEqual({ fidelidade: false, cpf_nota: true, comprovante: true });
+  });
+});
+
+// Item 4: Termos e Condições completos, para o link e o QR Code do totem.
+describe('página dos Termos e Condições', () => {
+  it('traz todas as seções do termo e a versão, com o HTML escapado', () => {
+    const pagina = paginaTermos();
+    for (const secao of obterTermo().secoes) {
+      expect(pagina).toContain(secao.titulo);
+    }
+    expect(pagina).toContain(`Versão ${VERSAO_TERMO}`);
+    expect(pagina).not.toMatch(/<script/i);
   });
 });

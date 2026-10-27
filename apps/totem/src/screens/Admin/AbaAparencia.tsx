@@ -3,9 +3,15 @@ import type { AparenciaTotem, PaginaTotem } from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { Cabecalho } from '../../components/Cabecalho';
 import { urlImagem } from '../../services/apiClient';
-import { redimensionarImagem } from '../../utils/imagem';
 import { variaveisDoTema } from '../../utils/tema';
-import { Campo, MensagemRetorno, SALVO_AGUARDA_REINICIO, useAcao, type PropsAba } from './comum';
+import {
+  Campo,
+  CampoImagem,
+  MensagemRetorno,
+  SALVO_PENDENTE,
+  useAcao,
+  type PropsAba,
+} from './comum';
 
 // As fontes ficam salvas na configuração, mas o totem ainda não as aplica.
 const FONTES = [
@@ -19,17 +25,22 @@ const FONTES = [
   'Playfair Display',
 ];
 
+// Na ordem do fluxo (Tela 0 a Tela 5).
 const PAGINAS: { id: PaginaTotem; rotulo: string }[] = [
+  { id: 'inicio', rotulo: 'Início' },
+  { id: 'fidelidade', rotulo: 'Fidelidade' },
   { id: 'cardapio', rotulo: 'Cardápio' },
   { id: 'carrinho', rotulo: 'Carrinho' },
-  { id: 'identificacao', rotulo: 'Identificação' },
   { id: 'pagamento', rotulo: 'Pagamento' },
-  { id: 'comprovante', rotulo: 'Comprovante' },
+  { id: 'comprovante', rotulo: 'Nota e comprovante' },
 ];
 
 const COR_HEX = /^#[0-9a-f]{6}$/i;
 // Lado máximo do logotipo: sobra para o círculo de 3,25rem do cabeçalho em tela densa.
 const LADO_LOGO = 160;
+// Publicidade ocupa a tela de pé inteira (1080×1920).
+const LADO_PUBLICIDADE = 1920;
+const MAX_PUBLICIDADE = 10;
 
 function CampoCor({
   rotulo,
@@ -75,17 +86,22 @@ export function AbaAparencia({ api, config, salvarConfig }: PropsAba) {
       paginas: { ...atual.paginas, [pagina]: { ...atual.paginas[pagina], [campo]: valor } },
     }));
 
-  const enviarLogo = (arquivo: File) =>
-    executar(async () => {
-      const { url } = await api.enviarImagem(await redimensionarImagem(arquivo, LADO_LOGO));
-      alterar({ logoImagemUrl: url });
-    });
+  const { imagens: anuncios, segundosPorImagem } = rascunho.publicidade;
+  const alterarPublicidade = (parcial: Partial<AparenciaTotem['publicidade']>) =>
+    setRascunho((atual) => ({ ...atual, publicidade: { ...atual.publicidade, ...parcial } }));
+  const moverAnuncio = (indice: number, passo: -1 | 1) => {
+    const destino = indice + passo;
+    if (destino < 0 || destino >= anuncios.length) return;
+    const copia = [...anuncios];
+    [copia[indice], copia[destino]] = [copia[destino], copia[indice]];
+    alterarPublicidade({ imagens: copia });
+  };
 
   const salvar = () =>
     executar(async () => {
       const salva = await salvarConfig({ ...config, aparencia: rascunho });
       setRascunho(salva.aparencia);
-    }, SALVO_AGUARDA_REINICIO);
+    }, SALVO_PENDENTE);
 
   // A prévia usa a última cor válida enquanto o administrador ainda digita o hex.
   const corDaPrevia = (campo: 'corFundo' | 'corBarra' | 'corNome') =>
@@ -171,28 +187,91 @@ export function AbaAparencia({ api, config, salvarConfig }: PropsAba) {
             onChange={(evento) => alterar({ logoEmoji: evento.target.value })}
           />
         </Campo>
-        <Campo rotulo="Imagem" dica="É reduzida e recortada para caber no círculo.">
+        <CampoImagem
+          rotulo="Imagem"
+          dica="É reduzida e recortada para caber no círculo."
+          ladoMaximo={LADO_LOGO}
+          enviarImagem={api.enviarImagem}
+          executar={executar}
+          aoEnviar={(url) => alterar({ logoImagemUrl: url })}
+          aoRemover={
+            rascunho.logoImagemUrl ? () => alterar({ logoImagemUrl: undefined }) : undefined
+          }
+          rotuloRemover="Voltar ao emoji"
+        />
+      </div>
+
+      {/* Item 10: a Tela 0 ("Toque para começar") passa estas imagens, uma por vez, com
+          bolinhas que marcam o tempo de cada uma. Sem imagens, mostra o logotipo. */}
+      <h2>Publicidade da tela inicial</h2>
+      <p className="admin-dica">
+        Imagens de pé (9:16, como 1080×1920) ficam melhores. Até {MAX_PUBLICIDADE} imagens, na ordem
+        abaixo.
+      </p>
+      <div className="admin-publicidade">
+        {anuncios.map((url, indice) => (
+          <figure key={url} className="admin-anuncio">
+            <img src={urlImagem(url)} alt={`Publicidade ${indice + 1}`} />
+            <figcaption className="admin-linha__acoes">
+              <BotaoTouch
+                aria-label={`Antes: publicidade ${indice + 1}`}
+                onClick={() => moverAnuncio(indice, -1)}
+                disabled={indice === 0}
+              >
+                ←
+              </BotaoTouch>
+              <BotaoTouch
+                aria-label={`Depois: publicidade ${indice + 1}`}
+                onClick={() => moverAnuncio(indice, 1)}
+                disabled={indice === anuncios.length - 1}
+              >
+                →
+              </BotaoTouch>
+              <BotaoTouch
+                variante="perigo"
+                aria-label={`Tirar a publicidade ${indice + 1}`}
+                onClick={() =>
+                  alterarPublicidade({ imagens: anuncios.filter((_, i) => i !== indice) })
+                }
+              >
+                ✕
+              </BotaoTouch>
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+      <div className="admin-grade">
+        {anuncios.length < MAX_PUBLICIDADE && (
+          <CampoImagem
+            rotulo="Adicionar imagem"
+            ladoMaximo={LADO_PUBLICIDADE}
+            enviarImagem={api.enviarImagem}
+            executar={executar}
+            aoEnviar={(url) =>
+              setRascunho((atual) => ({
+                ...atual,
+                publicidade: { ...atual.publicidade, imagens: [...atual.publicidade.imagens, url] },
+              }))
+            }
+          />
+        )}
+        <Campo rotulo="Segundos por imagem" dica="De 3 a 60.">
           <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(evento) => {
-              const arquivo = evento.target.files?.[0];
-              if (arquivo) enviarLogo(arquivo);
-              evento.target.value = '';
-            }}
+            type="number"
+            min={3}
+            max={60}
+            value={segundosPorImagem}
+            onChange={(evento) =>
+              alterarPublicidade({ segundosPorImagem: Number(evento.target.value) })
+            }
           />
         </Campo>
-        {rascunho.logoImagemUrl && (
-          <BotaoTouch variante="perigo" onClick={() => alterar({ logoImagemUrl: undefined })}>
-            Voltar ao emoji
-          </BotaoTouch>
-        )}
       </div>
 
       <h2>Cores</h2>
       <p className="admin-dica">
-        Você escolhe estas três; as cores dos demais textos e detalhes são ajustadas
-        sozinhas para contrastar com o fundo e com a barra.
+        Você escolhe estas três; as cores dos demais textos e detalhes são ajustadas sozinhas para
+        contrastar com o fundo e com a barra.
       </p>
       <div className="admin-grade">
         <CampoCor

@@ -1,96 +1,93 @@
-import { useCallback, useRef, useState } from 'react';
-import type { FormaPagamento } from '@totem/shared';
+import { useState } from 'react';
+import type { ConsumoPedido, FormaPagamento } from '@totem/shared';
 import {
-  aplicarCupom,
   escolherFormaPagamento,
-  removerCupom,
-  usarPontos,
+  informarCpfNota,
+  registrarConsentimentos,
 } from '../../services/apiClient';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useConfig, useTermoConsentimento } from '../../contexts/ConfigContext';
 import { usePedido } from '../../contexts/PedidoContext';
-import { useFecharAoTocarFora } from '../../hooks/useFecharAoTocarFora';
+import { useConferenciaCpf } from '../../hooks/useConferenciaCpf';
+import { AvisoConsentimento } from '../../components/AvisoConsentimento';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { ResumoPedido } from '../../components/ResumoPedido';
 import { TecladoNumerico } from '../../components/TecladoNumerico';
-import { TecladoVirtual } from '../../components/TecladoVirtual';
-import { formatarCentavos } from '../../utils/formatarMoeda';
+import { formatarCpf, mascararCpf } from '../../utils/cpf';
+import { FORMAS_PAGAMENTO } from '../../utils/formasPagamento';
 
-const FORMAS: { valor: FormaPagamento; rotulo: string; icone: string }[] = [
-  { valor: 'credito', rotulo: 'Crédito', icone: '💳' },
-  { valor: 'debito', rotulo: 'Débito', icone: '🏧' },
-  { valor: 'pix', rotulo: 'Pix', icone: '⚡' },
-  { valor: 'dinheiro', rotulo: 'Dinheiro', icone: '💵' },
-];
-
-// US-06: Escolher forma de pagamento.
-// US 13: Aplicar cupom de desconto (campo com teclado virtual).
-// É a única tela que mostra descontos: subtotal, cada desconto (cupom, pontos de
-// fidelidade) e o total a pagar. Todos os valores vêm prontos do servidor, no pedido —
-// a tela nunca calcula o total por conta própria.
+// Tela 4 — Pagamento.
+// Item 11: antes de pagar, "Para comer aqui" ou "Para levar" (com uma opção desligada,
+// vale a outra).
+// Item 3 / US 09: CPF na nota, independente do CPF da fidelidade: o mesmo, outro ou
+// nenhum. Perguntado uma vez só (US 10); o consentimento é registrado antes de o CPF ir
+// para o pedido (US 29).
+// US-06: escolher a forma de pagamento. Dinheiro manda o cliente ao caixa (item 2).
 // IMPORTANTE: esta tela nunca deve capturar ou armazenar dados de cartão — a
 // tokenização acontece no gateway/adquirente (ver apps/api/src/integrations/gateway-pagamento).
+// LGPD: dado pessoal — exige consentimento/criptografia (CPF digitado nesta tela).
 export function PagamentoScreen() {
-  const [codigoCupom, setCodigoCupom] = useState('');
-  const [erroCupom, setErroCupom] = useState<string | null>(null);
-  const [tecladoCupomAberto, setTecladoCupomAberto] = useState(false);
-  const [pontosDigitados, setPontosDigitados] = useState('');
-  const [erroPontos, setErroPontos] = useState<string | null>(null);
-  const [tecladoPontosAberto, setTecladoPontosAberto] = useState(false);
+  const { aparencia, formasPagamento, consumo: opcoesConsumo } = useConfig();
+  const termo = useTermoConsentimento();
+  const { pedidoId, pedido, clienteFidelidade, recarregarPedido, irParaEtapa } = usePedido();
+  const escolheConsumo = opcoesConsumo.local && opcoesConsumo.viagem;
+  const [consumo, setConsumo] = useState<ConsumoPedido | null>(
+    pedido?.consumo ?? (escolheConsumo ? null : opcoesConsumo.local ? 'local' : 'viagem'),
+  );
+
+  // CPF na nota: `undefined` = ainda não decidido neste pedido.
+  const decisaoCpf = pedido?.consentimentos?.cpf_nota;
+  const [aceitouCpf, setAceitouCpf] = useState(false);
+  // Com fidelidade: usar o mesmo CPF dela? (`null` = ainda não respondeu)
+  const [mesmoCpf, setMesmoCpf] = useState<boolean | null>(clienteFidelidade ? null : false);
+  const [cpf, setCpf] = useState('');
+  const situacaoCpf = useConferenciaCpf(mesmoCpf === false ? cpf : '', false);
+
   const [erro, setErro] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
-  const cupomRef = useRef<HTMLDivElement>(null);
-  const pontosRef = useRef<HTMLDivElement>(null);
-  const { aparencia, fidelidade, formasPagamento, cuponsHabilitados } = useConfig();
-  const { pedidoId, pedido, clienteFidelidade, recarregarPedido, irParaEtapa } = usePedido();
 
-  // Fecha o teclado ao tocar fora do campo; o que foi digitado permanece.
-  const fecharTecladoCupom = useCallback(() => setTecladoCupomAberto(false), []);
-  useFecharAoTocarFora(cupomRef, tecladoCupomAberto, fecharTecladoCupom);
-  const fecharTecladoPontos = useCallback(() => setTecladoPontosAberto(false), []);
-  useFecharAoTocarFora(pontosRef, tecladoPontosAberto, fecharTecladoPontos);
+  const cpfDaNota = mesmoCpf && clienteFidelidade ? clienteFidelidade.numeroFidelidade : cpf;
+  const cpfPronto =
+    decisaoCpf !== undefined ||
+    !aceitouCpf ||
+    mesmoCpf === true ||
+    (mesmoCpf === false && situacaoCpf.tipo === 'valido');
+  const podePagar = !processando && consumo !== null && cpfPronto;
 
-  // Executa uma mudança de desconto e recarrega o pedido, de onde saem os valores.
-  async function alterarDesconto(acao: () => Promise<unknown>, aoFalhar: (mensagem: string) => void) {
-    setErro(null);
-    try {
-      await acao();
-    } catch (err) {
-      aoFalhar((err as Error).message);
+  function mudarAceiteCpf(aceito: boolean) {
+    setAceitouCpf(aceito);
+    if (!aceito) {
+      setCpf('');
+      setMesmoCpf(clienteFidelidade ? null : false);
     }
-    await recarregarPedido().catch(() => undefined);
   }
 
-  // US 13: cupom recusado não altera o pedido, que segue com o total anterior.
-  function aplicar() {
-    setErroCupom(null);
-    setTecladoCupomAberto(false);
-    return alterarDesconto(async () => {
-      await aplicarCupom(pedidoId, codigoCupom);
-      setCodigoCupom('');
-    }, setErroCupom);
+  // A decisão sobre o CPF na nota é registrada só agora, ao pagar: desmarcado = recusa.
+  async function registrarCpfNota() {
+    if (decisaoCpf !== undefined) return;
+    if (!aceitouCpf) {
+      await registrarConsentimentos(pedidoId, termo.versao, { cpf_nota: false });
+      return;
+    }
+    await registrarConsentimentos(pedidoId, termo.versao, { cpf_nota: true });
+    await informarCpfNota(pedidoId, cpfDaNota);
   }
 
-  // O servidor recusa (e explica) se o cliente pedir mais pontos do que tem.
-  function aplicarPontos() {
-    setErroPontos(null);
-    setTecladoPontosAberto(false);
-    return alterarDesconto(async () => {
-      await usarPontos(pedidoId, Number(pontosDigitados));
-      setPontosDigitados('');
-    }, setErroPontos);
-  }
-
-  // US-06
   async function pagar(forma: FormaPagamento) {
+    if (!consumo) return;
     setProcessando(true);
     setErro(null);
     try {
-      const resultado = await escolherFormaPagamento(pedidoId, forma);
-      if (resultado.status !== 'autorizado') {
+      await registrarCpfNota();
+      const resultado = await escolherFormaPagamento(pedidoId, forma, consumo);
+      const aprovado =
+        resultado.status === 'autorizado' ||
+        (forma === 'dinheiro' && resultado.status === 'pendente');
+      if (!aprovado) {
         setErro(`Pagamento ${resultado.status}`);
         return;
       }
       await recarregarPedido();
-      irParaEtapa('comprovante');
+      irParaEtapa('conclusao');
     } catch (err) {
       setErro((err as Error).message);
       // Um pagamento recusado pode ter mudado o pedido (ex.: cupom que venceu).
@@ -100,144 +97,107 @@ export function PagamentoScreen() {
     }
   }
 
-  const formasAceitas = FORMAS.filter(
-    (forma) => forma.valor === 'dinheiro' || formasPagamento[forma.valor],
-  );
-  const podeUsarPontos = fidelidade.habilitado && clienteFidelidade !== null;
-  const descontoCupom = pedido?.descontoCupomCentavos ?? 0;
-  const descontoPontos = pedido?.descontoPontosCentavos ?? 0;
+  const formasAceitas = FORMAS_PAGAMENTO.filter((forma) => formasPagamento[forma.valor]);
 
   return (
     <div className="tela">
       <h1 className="tela__titulo">{aparencia.paginas.pagamento.titulo}</h1>
       <p className="tela__subtitulo">{aparencia.paginas.pagamento.descricao}</p>
 
-      {cuponsHabilitados && (
-        <section className="cartao">
-          <h2>🏷️ Cupom de desconto</h2>
-          {/* US 14: com um cupom aplicado, dá para removê-lo (volta o valor integral) ou
-              digitar outro código, que substitui o atual se for válido. */}
-          {pedido?.cupomAplicado && (
-            <div className="desconto-aplicado">
-              <p className="desconto">Cupom {pedido.cupomAplicado} aplicado</p>
-              <BotaoTouch
-                variante="perigo"
-                onClick={() => alterarDesconto(() => removerCupom(pedidoId), setErroCupom)}
-              >
-                Remover
-              </BotaoTouch>
-            </div>
-          )}
-          <div ref={cupomRef}>
-            <div className="cupom">
-              <input
-                readOnly
-                value={codigoCupom}
-                onClick={() => setTecladoCupomAberto(true)}
-                onFocus={() => setTecladoCupomAberto(true)}
-                placeholder={pedido?.cupomAplicado ? 'Trocar por outro cupom' : 'Código do cupom'}
-                aria-label="Código do cupom"
-              />
-              {codigoCupom && (
-                <BotaoTouch variante="perigo" onClick={() => setCodigoCupom('')}>
-                  Limpar
-                </BotaoTouch>
-              )}
-              <BotaoTouch variante="destaque" onClick={aplicar} disabled={!codigoCupom.trim()}>
-                {pedido?.cupomAplicado ? 'Trocar' : 'Aplicar'}
-              </BotaoTouch>
-            </div>
-            {tecladoCupomAberto && (
-              <TecladoVirtual valor={codigoCupom} onChange={setCodigoCupom} maiusculas />
-            )}
-          </div>
-          {erroCupom && <p className="erro">{erroCupom}</p>}
+      {escolheConsumo && (
+        <section className="consumo" aria-label="Onde você vai comer?">
+          <BotaoTouch
+            className={
+              consumo === 'local' ? 'consumo__opcao consumo__opcao--ativa' : 'consumo__opcao'
+            }
+            aria-pressed={consumo === 'local'}
+            onClick={() => setConsumo('local')}
+          >
+            <span aria-hidden="true">🍽️</span> Para comer aqui
+          </BotaoTouch>
+          <BotaoTouch
+            className={
+              consumo === 'viagem' ? 'consumo__opcao consumo__opcao--ativa' : 'consumo__opcao'
+            }
+            aria-pressed={consumo === 'viagem'}
+            onClick={() => setConsumo('viagem')}
+          >
+            <span aria-hidden="true">🛍️</span> Para levar
+          </BotaoTouch>
         </section>
       )}
 
-      {/* Sem CPF cadastrado na fidelidade, o campo de pontos nem aparece. */}
-      {podeUsarPontos && (
-        <section className="cartao">
-          <h2>⭐ Pontos de fidelidade</h2>
-          <p className="saldo-pontos">
-            Seu saldo: <strong>{clienteFidelidade.pontos.toLocaleString('pt-BR')} pontos</strong>{' '}
-            ({fidelidade.pontosPorReal.toLocaleString('pt-BR')} pontos = R$ 1,00)
+      <section className="cartao">
+        <h2>🧾 CPF na nota fiscal (opcional)</h2>
+        {decisaoCpf === true && pedido?.cpfNaNota && (
+          <p className="aviso-cadastro aviso-cadastro--ok">
+            CPF na nota: {mascararCpf(pedido.cpfNaNota)}
           </p>
-          {pedido?.pontosUsados ? (
-            <div className="desconto-aplicado">
-              <p className="desconto">
-                {pedido.pontosUsados.toLocaleString('pt-BR')} pontos usados neste pedido
-              </p>
-              <BotaoTouch
-                variante="perigo"
-                onClick={() => alterarDesconto(() => usarPontos(pedidoId, 0), setErroPontos)}
-              >
-                Remover
-              </BotaoTouch>
-            </div>
-          ) : (
-            <div ref={pontosRef}>
-              <div className="cupom">
-                <input
-                  readOnly
-                  value={pontosDigitados}
-                  onClick={() => setTecladoPontosAberto(true)}
-                  onFocus={() => setTecladoPontosAberto(true)}
-                  placeholder="Quantos pontos usar"
-                  aria-label="Quantos pontos usar"
-                />
-                {pontosDigitados && (
-                  <BotaoTouch variante="perigo" onClick={() => setPontosDigitados('')}>
-                    Limpar
+        )}
+        {decisaoCpf === false && <p className="aviso">Sem CPF na nota neste pedido.</p>}
+        {decisaoCpf === undefined && (
+          <>
+            <AvisoConsentimento
+              termo={termo}
+              finalidades={['cpf_nota']}
+              aceites={{ cpf_nota: aceitouCpf }}
+              aoMudar={(_finalidade, aceito) => mudarAceiteCpf(aceito)}
+            />
+            {!aceitouCpf && <p className="aviso">Deixe desmarcado para seguir sem CPF na nota.</p>}
+            {aceitouCpf && clienteFidelidade && (
+              <div className="cpf-escolha">
+                <p>
+                  Incluir o mesmo CPF do programa de fidelidade (
+                  {mascararCpf(clienteFidelidade.numeroFidelidade)})?
+                </p>
+                <div className="tela__acoes-grupo">
+                  <BotaoTouch
+                    variante={mesmoCpf === true ? 'destaque' : 'padrao'}
+                    aria-pressed={mesmoCpf === true}
+                    onClick={() => setMesmoCpf(true)}
+                  >
+                    Sim, o mesmo CPF
                   </BotaoTouch>
-                )}
-                <BotaoTouch
-                  variante="destaque"
-                  onClick={aplicarPontos}
-                  disabled={!Number(pontosDigitados)}
-                >
-                  Usar pontos
-                </BotaoTouch>
+                  <BotaoTouch
+                    variante={mesmoCpf === false ? 'destaque' : 'padrao'}
+                    aria-pressed={mesmoCpf === false}
+                    onClick={() => setMesmoCpf(false)}
+                  >
+                    Outro CPF
+                  </BotaoTouch>
+                </div>
               </div>
-              {tecladoPontosAberto && (
-                <TecladoNumerico
-                  valor={pontosDigitados}
-                  onChange={setPontosDigitados}
-                  tamanhoMaximo={9}
-                />
-              )}
-            </div>
-          )}
-          {erroPontos && <p className="erro">{erroPontos}</p>}
-        </section>
-      )}
+            )}
+            {aceitouCpf && mesmoCpf === false && (
+              <div className="identificacao">
+                <div>
+                  <p className="valor-digitado">{formatarCpf(cpf) || '—'}</p>
+                  {situacaoCpf.tipo === 'verificando' && (
+                    <p className="aviso">Conferindo o CPF...</p>
+                  )}
+                  {situacaoCpf.tipo === 'invalido' && (
+                    <p className="erro">CPF inválido. Confira os números ou desmarque a caixa.</p>
+                  )}
+                  {situacaoCpf.tipo === 'falha' && <p className="erro">{situacaoCpf.mensagem}</p>}
+                  {situacaoCpf.tipo === 'valido' && (
+                    <p className="aviso-cadastro aviso-cadastro--ok">
+                      CPF conferido. Ele vai na nota fiscal deste pedido.
+                    </p>
+                  )}
+                </div>
+                <TecladoNumerico valor={cpf} onChange={setCpf} tamanhoMaximo={11} />
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
-      <div className="resumo">
-        <div className="resumo__detalhe">
-          <p className="resumo__linha">
-            <span>Subtotal</span>
-            <span>{formatarCentavos(pedido?.valorTotalCentavos ?? 0)}</span>
-          </p>
-          {descontoCupom > 0 && (
-            <p className="resumo__linha resumo__linha--desconto">
-              <span>Cupom {pedido?.cupomAplicado}</span>
-              <span>− {formatarCentavos(descontoCupom)}</span>
-            </p>
-          )}
-          {descontoPontos > 0 && (
-            <p className="resumo__linha resumo__linha--desconto">
-              <span>Pontos de fidelidade ({pedido?.pontosUsados?.toLocaleString('pt-BR')})</span>
-              <span>− {formatarCentavos(descontoPontos)}</span>
-            </p>
-          )}
-        </div>
-        <p className="total">
-          <span>Total a pagar</span>
-          <strong>{formatarCentavos(pedido?.valorAPagarCentavos ?? 0)}</strong>
-        </p>
-      </div>
+      <ResumoPedido pedido={pedido} />
 
       {erro && <p className="erro">{erro}</p>}
+      {escolheConsumo && consumo === null && (
+        <p className="aviso">Escolha acima se é para comer aqui ou para levar.</p>
+      )}
 
       <section className="formas-pagamento">
         {formasAceitas.map((forma) => (
@@ -245,7 +205,7 @@ export function PagamentoScreen() {
             key={forma.valor}
             className="forma-pagamento"
             onClick={() => pagar(forma.valor)}
-            disabled={processando}
+            disabled={!podePagar}
           >
             <span className="forma-pagamento__icone" aria-hidden="true">
               {forma.icone}
@@ -255,13 +215,7 @@ export function PagamentoScreen() {
         ))}
       </section>
 
-      {/* US 10: quem pulou a identificação volta direto ao carrinho, sem ser perguntado
-          de novo pelos dados pessoais. */}
-      <BotaoTouch
-        onClick={() => irParaEtapa(pedido?.semDadosPessoais ? 'carrinho' : 'identificacao')}
-      >
-        Voltar
-      </BotaoTouch>
+      <BotaoTouch onClick={() => irParaEtapa('carrinho')}>Voltar ao carrinho</BotaoTouch>
     </div>
   );
 }

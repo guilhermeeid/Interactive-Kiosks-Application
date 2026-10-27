@@ -1,16 +1,39 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Cupom, CupomComSituacao, SituacaoCupom, TipoDescontoCupom } from '@totem/shared';
+import type {
+  CategoriaCardapio,
+  ComPendencia,
+  Cupom,
+  CupomComSituacao,
+  ItemCardapio,
+  RestricaoCupom,
+  SituacaoCupom,
+  TipoDescontoCupom,
+} from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { CodigoQr } from '../../components/CodigoQr';
+import { Modal } from '../../components/Modal';
 import type { DadosCupom } from '../../services/adminApi';
-import { centavosParaReais, formatarCentavos, reaisParaCentavos } from '../../utils/formatarMoeda';
+import { centavosParaReais, formatarCentavos } from '../../utils/formatarMoeda';
+import { qrDeCupom } from '../../utils/qr';
+import { lerDescontoDoCupom, lerLimiteDeUsos, lerReaisOpcional } from '../../utils/valorCupom';
 import {
   Campo,
   MensagemRetorno,
   Opcao,
-  SALVO_AGUARDA_REINICIO,
+  SALVO_PENDENTE,
+  SeloPendente,
   useAcao,
   type PropsAba,
 } from './comum';
+
+// Item 6: para que o cupom vale.
+type Alcance = 'pedido' | RestricaoCupom['tipo'];
+
+const ALCANCES: { valor: Alcance; rotulo: string }[] = [
+  { valor: 'pedido', rotulo: 'O pedido inteiro' },
+  { valor: 'itens', rotulo: 'Só alguns itens' },
+  { valor: 'categorias', rotulo: 'Só algumas categorias' },
+];
 
 // Campos do formulário de cupom, como texto digitado; viram DadosCupom ao salvar.
 interface FormCupom {
@@ -21,6 +44,10 @@ interface FormCupom {
   validoDe: string; // formato do <input type="datetime-local">; vazio = sem limite
   validoAte: string;
   limiteUsos: string; // vazio = sem limite
+  alcance: Alcance;
+  idsAlcance: string[]; // itens ou categorias, conforme o alcance
+  pedidoMinimo: string; // R$; vazio = sem mínimo
+  descontoMaximo: string; // R$, só no percentual; vazio = sem teto
   ativo: boolean;
 }
 
@@ -32,6 +59,10 @@ const FORM_VAZIO: FormCupom = {
   validoDe: '',
   validoAte: '',
   limiteUsos: '',
+  alcance: 'pedido',
+  idsAlcance: [],
+  pedidoMinimo: '',
+  descontoMaximo: '',
   ativo: true,
 };
 
@@ -54,6 +85,10 @@ function formatarDataHora(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+function reaisOuVazio(centavos?: number): string {
+  return centavos === undefined ? '' : centavosParaReais(centavos);
+}
+
 function formDoCupom(cupom: Cupom): FormCupom {
   return {
     novo: false,
@@ -64,40 +99,60 @@ function formDoCupom(cupom: Cupom): FormCupom {
     validoDe: isoParaCampo(cupom.validoDe),
     validoAte: isoParaCampo(cupom.validoAte),
     limiteUsos: cupom.limiteUsos === undefined ? '' : String(cupom.limiteUsos),
+    alcance: cupom.aplicaEm?.tipo ?? 'pedido',
+    idsAlcance: cupom.aplicaEm?.ids ?? [],
+    pedidoMinimo: reaisOuVazio(cupom.pedidoMinimoCentavos),
+    descontoMaximo: reaisOuVazio(cupom.descontoMaximoCentavos),
     ativo: cupom.ativo,
   };
 }
 
 function dadosDoForm(form: FormCupom): DadosCupom {
-  const valor =
-    form.tipoDesconto === 'percentual'
-      ? Number(form.valor.replace(',', '.'))
-      : reaisParaCentavos(form.valor);
-  if (valor === null || !Number.isFinite(valor) || valor <= 0) {
-    throw new Error(
-      form.tipoDesconto === 'percentual'
-        ? 'Informe o percentual de desconto, como 10'
-        : 'Informe o desconto em reais, como 5,00',
-    );
-  }
-  const limite = form.limiteUsos.trim();
-  if (limite && !/^\d+$/.test(limite)) {
-    throw new Error('A quantidade de usos deve ser um número inteiro (ou vazia, para não limitar)');
-  }
   return {
     codigo: form.codigo,
     tipoDesconto: form.tipoDesconto,
-    valor,
+    // US 36: zero ou negativo é recusado aqui (e de novo na API).
+    valor: lerDescontoDoCupom(form.tipoDesconto, form.valor),
     validoDe: campoParaIso(form.validoDe),
     validoAte: campoParaIso(form.validoAte),
-    limiteUsos: limite ? Number(limite) : null,
+    limiteUsos: lerLimiteDeUsos(form.limiteUsos),
+    aplicaEm: form.alcance === 'pedido' ? null : { tipo: form.alcance, ids: form.idsAlcance },
+    pedidoMinimoCentavos: lerReaisOpcional(form.pedidoMinimo, 'o pedido mínimo'),
+    // O teto só existe no desconto em percentual.
+    descontoMaximoCentavos:
+      form.tipoDesconto === 'percentual'
+        ? lerReaisOpcional(form.descontoMaximo, 'o desconto máximo')
+        : null,
     ativo: form.ativo,
   };
+}
+
+// Resumo das regras do item 6, para a tabela.
+function descreverRegras(
+  cupom: Cupom,
+  produtos: ItemCardapio[],
+  categorias: CategoriaCardapio[],
+): string {
+  const partes: string[] = [];
+  if (cupom.aplicaEm) {
+    const fonte: { id: string; nome: string }[] =
+      cupom.aplicaEm.tipo === 'itens' ? produtos : categorias;
+    const nomes = cupom.aplicaEm.ids.map((id) => fonte.find((r) => r.id === id)?.nome ?? '?');
+    partes.push(`só ${nomes.join(', ')}`);
+  }
+  if (cupom.pedidoMinimoCentavos) {
+    partes.push(`a partir de ${formatarCentavos(cupom.pedidoMinimoCentavos)}`);
+  }
+  if (cupom.descontoMaximoCentavos) {
+    partes.push(`até ${formatarCentavos(cupom.descontoMaximoCentavos)} de desconto`);
+  }
+  return partes.join(' · ') || 'pedido inteiro';
 }
 
 // Situação calculada pela API com a mesma regra que o totem usa para aceitar o cupom.
 const SITUACOES: Record<SituacaoCupom, string> = {
   valido: 'Ativo',
+  sem_desconto: 'Valor inválido',
   inativo: 'Desativado',
   nao_vigente: 'Ainda não vale',
   expirado: 'Expirado',
@@ -112,15 +167,29 @@ const FILTROS: { id: Filtro; rotulo: string; aceita: (cupom: CupomComSituacao) =
   { id: 'inativos', rotulo: 'Inativos', aceita: (cupom) => cupom.situacao !== 'valido' },
 ];
 
-export function AbaCupons({ api, config, salvarConfig }: PropsAba) {
-  const [cupons, setCupons] = useState<CupomComSituacao[]>([]);
+export function AbaCupons({ api, config, salvarConfig, aoSalvar }: PropsAba) {
+  const [cupons, setCupons] = useState<ComPendencia<CupomComSituacao>[]>([]);
+  const [produtos, setProdutos] = useState<ComPendencia<ItemCardapio>[]>([]);
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [form, setForm] = useState<FormCupom | null>(null);
+  // Código do cupom cujo QR está aberto na tela.
+  const [qr, setQr] = useState<string | null>(null);
   const { retorno, ocupado, executar } = useAcao();
+  const { categorias } = config;
   const visiveis = cupons.filter(FILTROS.find((opcao) => opcao.id === filtro)?.aceita ?? Boolean);
+  // Itens que ficam depois do reinício podem entrar num cupom.
+  const produtosQueFicam = produtos.filter((produto) => produto.pendente !== 'removido');
 
   const carregar = useCallback(
-    () => executar(async () => setCupons(await api.listarCupons())),
+    () =>
+      executar(async () => {
+        const [listaCupons, listaProdutos] = await Promise.all([
+          api.listarCupons(),
+          api.listarProdutos(),
+        ]);
+        setCupons(listaCupons);
+        setProdutos(listaProdutos);
+      }),
     [api, executar],
   );
   useEffect(() => {
@@ -130,31 +199,48 @@ export function AbaCupons({ api, config, salvarConfig }: PropsAba) {
   const alterar = (parcial: Partial<FormCupom>) =>
     setForm((atual) => (atual ? { ...atual, ...parcial } : atual));
 
+  const alternarAlcance = (id: string, marcado: boolean) =>
+    setForm((atual) =>
+      atual
+        ? {
+            ...atual,
+            idsAlcance: marcado
+              ? [...atual.idsAlcance, id]
+              : atual.idsAlcance.filter((outro) => outro !== id),
+          }
+        : atual,
+    );
+
   async function salvar(atual: FormCupom) {
     const salvou = await executar(async () => {
       const dados = dadosDoForm(atual);
       await (atual.novo ? api.criarCupom(dados) : api.atualizarCupom(atual.codigo, dados));
       setCupons(await api.listarCupons());
-    }, 'Cupom salvo.');
+      aoSalvar();
+    }, `Cupom salvo. ${SALVO_PENDENTE}`);
     if (salvou) setForm(null);
   }
 
   const excluir = (cupom: Cupom) =>
-    window.confirm(`Excluir o cupom ${cupom.codigo}?`) &&
+    window.confirm(`Excluir o cupom ${cupom.codigo} no próximo reinício?`) &&
     executar(async () => {
       await api.excluirCupom(cupom.codigo);
       setCupons(await api.listarCupons());
-    }, `Cupom ${cupom.codigo} excluído.`);
+      aoSalvar();
+    }, `O cupom ${cupom.codigo} sai no reinício.`);
+
+  const opcoesAlcance: { id: string; nome: string }[] =
+    form?.alcance === 'itens' ? produtosQueFicam : categorias;
 
   return (
     <section className="admin-secao">
       <h2>Cupons de desconto</h2>
       <Opcao
         rotulo="Aceitar cupons no totem"
-        dica="Desmarcado, o campo de cupom some da tela de pagamento e nenhum cupom é aceito."
+        dica="Desmarcado, o campo de cupom some do carrinho e nenhum cupom é aceito."
         marcado={config.cuponsHabilitados}
         aoMudar={(cuponsHabilitados) =>
-          executar(() => salvarConfig({ ...config, cuponsHabilitados }), SALVO_AGUARDA_REINICIO)
+          executar(() => salvarConfig({ ...config, cuponsHabilitados }), SALVO_PENDENTE)
         }
       />
       <MensagemRetorno retorno={retorno} />
@@ -198,6 +284,29 @@ export function AbaCupons({ api, config, salvarConfig }: PropsAba) {
                 onChange={(evento) => alterar({ valor: evento.target.value })}
               />
             </Campo>
+            {form.tipoDesconto === 'percentual' && (
+              <Campo
+                rotulo="Desconto máximo (R$)"
+                dica="Teto do percentual, ex.: 10% limitado a R$ 50,00. Vazio = sem teto."
+              >
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="50,00"
+                  value={form.descontoMaximo}
+                  onChange={(evento) => alterar({ descontoMaximo: evento.target.value })}
+                />
+              </Campo>
+            )}
+            <Campo rotulo="Pedido mínimo (R$)" dica="Vazio = qualquer valor.">
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="30,00"
+                value={form.pedidoMinimo}
+                onChange={(evento) => alterar({ pedidoMinimo: evento.target.value })}
+              />
+            </Campo>
             <Campo rotulo="Quantidade de usos" dica="Vazio = sem limite.">
               <input
                 type="text"
@@ -221,7 +330,48 @@ export function AbaCupons({ api, config, salvarConfig }: PropsAba) {
               />
             </Campo>
           </div>
-          <Opcao rotulo="Cupom ativo" marcado={form.ativo} aoMudar={(ativo) => alterar({ ativo })} />
+
+          <fieldset className="admin-escolha">
+            <legend className="admin-campo__rotulo">Vale para</legend>
+            {ALCANCES.map(({ valor, rotulo }) => (
+              <label key={valor} className="admin-opcao">
+                <input
+                  type="radio"
+                  name="alcance-cupom"
+                  checked={form.alcance === valor}
+                  onChange={() => alterar({ alcance: valor, idsAlcance: [] })}
+                />
+                <span>
+                  <strong>{rotulo}</strong>
+                </span>
+              </label>
+            ))}
+            {form.alcance !== 'pedido' && (
+              <>
+                <small>
+                  O desconto é calculado só sobre{' '}
+                  {form.alcance === 'itens' ? 'esses itens' : 'os itens dessas categorias'} no
+                  carrinho; sem nenhum deles, o cupom não é aceito.
+                </small>
+                <div className="admin-marcar">
+                  {opcoesAlcance.map((opcao) => (
+                    <Opcao
+                      key={opcao.id}
+                      rotulo={opcao.nome}
+                      marcado={form.idsAlcance.includes(opcao.id)}
+                      aoMudar={(marcado) => alternarAlcance(opcao.id, marcado)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </fieldset>
+
+          <Opcao
+            rotulo="Cupom ativo"
+            marcado={form.ativo}
+            aoMudar={(ativo) => alterar({ ativo })}
+          />
           <div className="admin-linha__acoes">
             <BotaoTouch type="submit" variante="primario" disabled={ocupado}>
               Salvar cupom
@@ -261,48 +411,70 @@ export function AbaCupons({ api, config, salvarConfig }: PropsAba) {
               <th>Código</th>
               <th>Situação</th>
               <th>Desconto</th>
-              <th>Vale a partir de</th>
-              <th>Vale até</th>
+              <th>Regras</th>
+              <th>Validade</th>
               <th>Usos</th>
               <th aria-label="Ações" />
             </tr>
           </thead>
           <tbody>
-            {visiveis.map((cupom) => (
-              <tr key={cupom.codigo}>
-                <td>
-                  <strong>{cupom.codigo}</strong>
-                </td>
-                <td>
-                  <span className={`admin-situacao admin-situacao--${cupom.situacao}`}>
-                    {SITUACOES[cupom.situacao]}
-                  </span>
-                </td>
-                <td>
-                  {cupom.tipoDesconto === 'percentual'
-                    ? `${cupom.valor}%`
-                    : formatarCentavos(cupom.valor)}
-                </td>
-                <td>{cupom.validoDe ? formatarDataHora(cupom.validoDe) : 'sem início'}</td>
-                <td>{cupom.validoAte ? formatarDataHora(cupom.validoAte) : 'não expira'}</td>
-                <td>
-                  {cupom.usos ?? 0}
-                  {cupom.limiteUsos === undefined ? ' (sem limite)' : ` de ${cupom.limiteUsos}`}
-                </td>
-                <td>
-                  <div className="admin-linha__acoes">
-                    <BotaoTouch onClick={() => setForm(formDoCupom(cupom))}>Editar</BotaoTouch>
-                    <BotaoTouch variante="perigo" onClick={() => excluir(cupom)}>
-                      Excluir
-                    </BotaoTouch>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {visiveis.map((cupom) => {
+              const sai = cupom.pendente === 'removido';
+              return (
+                <tr key={cupom.codigo}>
+                  <td>
+                    <strong>{cupom.codigo}</strong>
+                    <SeloPendente pendente={cupom.pendente} />
+                  </td>
+                  <td>
+                    <span className={`admin-situacao admin-situacao--${cupom.situacao}`}>
+                      {SITUACOES[cupom.situacao]}
+                    </span>
+                  </td>
+                  <td>
+                    {cupom.tipoDesconto === 'percentual'
+                      ? `${cupom.valor}%`
+                      : formatarCentavos(cupom.valor)}
+                  </td>
+                  <td className="admin-tabela__quebra">
+                    {descreverRegras(cupom, produtos, categorias)}
+                  </td>
+                  <td>
+                    {cupom.validoDe ? `de ${formatarDataHora(cupom.validoDe)}` : 'sem início'}
+                    <br />
+                    {cupom.validoAte ? `até ${formatarDataHora(cupom.validoAte)}` : 'não expira'}
+                  </td>
+                  <td>
+                    {cupom.usos ?? 0}
+                    {cupom.limiteUsos === undefined ? ' (sem limite)' : ` de ${cupom.limiteUsos}`}
+                  </td>
+                  <td>
+                    <div className="admin-linha__acoes">
+                      <BotaoTouch onClick={() => setQr(cupom.codigo)}>QR</BotaoTouch>
+                      <BotaoTouch onClick={() => setForm(formDoCupom(cupom))} disabled={sai}>
+                        Editar
+                      </BotaoTouch>
+                      <BotaoTouch variante="perigo" onClick={() => excluir(cupom)} disabled={sai}>
+                        Excluir
+                      </BotaoTouch>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {visiveis.length === 0 && <p className="admin-dica">Nenhum cupom nesta lista.</p>}
       </div>
+
+      {qr && (
+        <Modal titulo={`Cupom ${qr}`} aoFechar={() => setQr(null)}>
+          <p>
+            Mostre este QR na câmera do totem (no cardápio ou no carrinho) para aplicar o cupom.
+          </p>
+          <CodigoQr texto={qrDeCupom(qr)} rotulo={`QR do cupom ${qr}`} />
+        </Modal>
+      )}
     </section>
   );
 }

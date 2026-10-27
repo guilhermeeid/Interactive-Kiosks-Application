@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ClienteFidelidade, ConfigFidelidade } from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { CodigoQr } from '../../components/CodigoQr';
+import { Modal } from '../../components/Modal';
 import { formatarCpf } from '../../utils/cpf';
 import { formatarCentavos } from '../../utils/formatarMoeda';
-import {
-  Campo,
-  MensagemRetorno,
-  Opcao,
-  SALVO_AGUARDA_REINICIO,
-  useAcao,
-  type PropsAba,
-} from './comum';
+import { qrDeFidelidade } from '../../utils/qr';
+import { Campo, MensagemRetorno, Opcao, SALVO_PENDENTE, useAcao, type PropsAba } from './comum';
 
 // Pedido usado para ilustrar as regras de acúmulo enquanto o administrador as ajusta.
 const PEDIDO_EXEMPLO_CENTAVOS = 5000;
@@ -50,7 +46,7 @@ function SecaoRegras({ config, salvarConfig }: PropsAba) {
             pontosPorReal: pontosPorRealNumero,
           },
         }),
-      SALVO_AGUARDA_REINICIO,
+      SALVO_PENDENTE,
     );
 
   // Mesma conta que a API faz no pagamento, só para o administrador ver o efeito.
@@ -140,6 +136,8 @@ function SecaoClientes({ api }: PropsAba) {
   const [pontosIniciais, setPontosIniciais] = useState('0');
   // Pontos em edição, por id do cliente, até o administrador tocar em "Salvar".
   const [pontosEditados, setPontosEditados] = useState<Record<string, string>>({});
+  // Cartão de fidelidade em QR (leva o id do cadastro, nunca o CPF) aberto na tela.
+  const [cartao, setCartao] = useState<ClienteFidelidade | null>(null);
   const { retorno, ocupado, executar } = useAcao();
 
   const carregar = useCallback(
@@ -179,8 +177,8 @@ function SecaoClientes({ api }: PropsAba) {
     <section className="admin-secao">
       <h2>Clientes cadastrados</h2>
       <p className="admin-dica">
-        O totem não cadastra ninguém: um CPF que não está nesta lista é avisado de que não
-        tem cadastro e segue sem fidelidade.
+        O totem não cadastra ninguém: um CPF que não está nesta lista é avisado de que não tem
+        cadastro e segue sem fidelidade.
       </p>
 
       <form
@@ -240,6 +238,7 @@ function SecaoClientes({ api }: PropsAba) {
                 >
                   Salvar
                 </BotaoTouch>
+                <BotaoTouch onClick={() => setCartao(cliente)}>Cartão (QR)</BotaoTouch>
                 <BotaoTouch variante="perigo" onClick={() => remover(cliente)}>
                   Remover
                 </BotaoTouch>
@@ -249,6 +248,17 @@ function SecaoClientes({ api }: PropsAba) {
         })}
         {clientes.length === 0 && <p className="admin-dica">Nenhum cliente cadastrado.</p>}
       </div>
+
+      {cartao && (
+        <Modal titulo="Cartão de fidelidade" aoFechar={() => setCartao(null)}>
+          <p>
+            Imprima ou envie ao cliente. Na câmera do totem, este QR identifica o cadastro{' '}
+            <strong>{formatarCpf(cartao.numeroFidelidade)}</strong> sem digitar o CPF (o QR não
+            contém o CPF).
+          </p>
+          <CodigoQr texto={qrDeFidelidade(cartao.id)} rotulo="QR do cartão de fidelidade" />
+        </Modal>
+      )}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarCpf } from './cpf';
+import { formatarCpf, mascararCpf } from './cpf';
 
 describe('formatarCpf', () => {
   it('aplica a máscara conforme os dígitos vão sendo digitados', () => {
@@ -14,5 +14,11 @@ describe('formatarCpf', () => {
   it('ignora o que não é dígito e o que passa de 11 dígitos', () => {
     expect(formatarCpf('123.456.789-09')).toBe('123.456.789-09');
     expect(formatarCpf('123456789099')).toBe('123.456.789-09');
+  });
+});
+
+describe('mascararCpf', () => {
+  it('mostra só os seis dígitos do meio', () => {
+    expect(mascararCpf('12345678909')).toBe('***.456.789-**');
   });
 });

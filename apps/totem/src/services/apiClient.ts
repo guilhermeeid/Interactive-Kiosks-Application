@@ -3,6 +3,7 @@ import type {
   ClienteFidelidade,
   Comprovante,
   ConfigTotem,
+  ConsumoPedido,
   FinalidadeConsentimento,
   FormaPagamento,
   ItemCardapio,
@@ -54,6 +55,19 @@ export function urlImagem(caminho: string): string {
 // Configuração definida pelo administrador, lida uma vez quando o totem inicia.
 export function buscarConfig(): Promise<ConfigTotem> {
   return request('/config');
+}
+
+// Identifica a execução do servidor. Quando muda, o servidor foi reiniciado e as
+// mudanças do Administrador entraram em vigor: o totem se recarrega ao voltar à tela
+// inicial.
+export function buscarVersaoServidor(): Promise<{ versao: string }> {
+  return request('/versao');
+}
+
+// Página pública dos Termos e Condições na própria API, usada no QR Code quando o
+// administrador não informa outro endereço.
+export function urlTermosPadrao(): string {
+  return `${API_URL}/consentimento/termos`;
 }
 
 // US-01 (categoria) e US-02 (busca por nome)
@@ -127,6 +141,17 @@ export function consultarCpf(
   });
 }
 
+// Fidelidade pelo QR Code do cartão do cliente (câmera do totem)
+export function informarFidelidadePorQr(
+  pedidoId: string,
+  codigo: string,
+): Promise<ClienteFidelidade> {
+  return request('/identificacao/fidelidade/qr', {
+    method: 'POST',
+    body: JSON.stringify({ pedidoId, codigo }),
+  });
+}
+
 // Define quantos pontos de fidelidade abater do pedido (0 desfaz o resgate)
 export function usarPontos(pedidoId: string, pontos: number): Promise<Pedido> {
   return request('/identificacao/fidelidade/pontos', {
@@ -141,14 +166,6 @@ export function informarCpfNota(pedidoId: string, cpf: string): Promise<Pedido> 
   return request('/identificacao/cpf-nota', {
     method: 'POST',
     body: JSON.stringify({ pedidoId, cpf }),
-  });
-}
-
-// US 10: pular a identificação — o pedido segue sem dados pessoais até o fim
-export function pularIdentificacao(pedidoId: string, versaoTermo: string): Promise<Pedido> {
-  return request('/identificacao/pular', {
-    method: 'POST',
-    body: JSON.stringify({ pedidoId, versaoTermo }),
   });
 }
 
@@ -183,13 +200,15 @@ export function removerCupom(pedidoId: string): Promise<Pedido> {
 }
 
 // US-06
+// Item 11: "consumo" é "para comer aqui" ou "para levar".
 export function escolherFormaPagamento(
   pedidoId: string,
   formaPagamento: FormaPagamento,
+  consumo?: ConsumoPedido,
 ): Promise<ResultadoPagamento> {
   return request('/pagamento', {
     method: 'POST',
-    body: JSON.stringify({ pedidoId, formaPagamento }),
+    body: JSON.stringify({ pedidoId, formaPagamento, consumo }),
   });
 }
 

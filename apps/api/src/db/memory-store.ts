@@ -5,6 +5,8 @@ import type {
   ConfigTotem,
   Cupom,
   ItemCardapio,
+  ItemPedido,
+  MudancaPendente,
   Pedido,
   RegistroConsentimento,
   ResultadoAplicacaoCupom,
@@ -15,7 +17,11 @@ import {
   anexarAuditoriaConsentimento,
   carregarAuditoriaConsentimento,
   carregarEstado,
+  carregarRascunho,
   salvarEstado,
+  salvarRascunho,
+  type PendenciasLista,
+  type RascunhoSalvo,
 } from './persistencia';
 
 // Armazenamento em memória usado como substituto temporário do Postgres, para o MVP
@@ -23,9 +29,10 @@ import {
 // modelado em ../db/schema.ts e ../db/migrations.
 // TODO: substituir estas estruturas por queries reais ao Postgres, mantendo os
 // mesmos tipos de packages/shared para não exigir mudanças nos módulos de negócio.
-// O que o administrador configura e o que muda a cada venda é gravado em disco por
-// `persistir()` (ver ./persistencia.ts); carrinhos ainda em montagem se perdem a cada
-// reinício do processo.
+// O que está em vigor e o que muda a cada venda é gravado em disco por `persistir()`;
+// o que o Administrador salvou e ainda não está em vigor fica em `rascunho` e só é
+// aplicado quando o processo reinicia (ver `aplicarRascunho`). Carrinhos ainda em
+// montagem se perdem a cada reinício.
 
 const salvo = carregarEstado();
 
@@ -128,7 +135,7 @@ export function registrarAuditoriaConsentimento(registro: RegistroConsentimento)
 }
 
 // Grava em disco o estado que precisa sobreviver a um reinício. Dos pedidos, só os que
-// seguram um número (pagos e ainda não entregues).
+// seguram um número (no caixa, pagos ou ainda não entregues).
 export function persistir(): void {
   salvarEstado({
     config,
@@ -138,6 +145,130 @@ export function persistir(): void {
     pedidos: [...pedidos.values()].filter(pedidoAguardaRetirada),
   });
 }
+
+// ---------- Mudanças pendentes do Administrador ----------
+// O Administrador muda tudo, mas o que ele salva só entra em vigor quando o servidor é
+// reiniciado. O Funcionário muda só alguns campos dos produtos, e isso vale na hora.
+
+function pendenciasVazias<T>(): PendenciasLista<T> {
+  return { novos: [], alterados: {}, removidos: [] };
+}
+
+export const rascunho: RascunhoSalvo = {
+  produtos: pendenciasVazias(),
+  cupons: pendenciasVazias(),
+};
+
+export function persistirRascunho(): void {
+  const vazio =
+    !rascunho.config &&
+    [rascunho.produtos, rascunho.cupons].every(
+      (lista) =>
+        lista.novos.length === 0 &&
+        lista.removidos.length === 0 &&
+        Object.keys(lista.alterados).length === 0,
+    );
+  salvarRascunho(vazio ? null : rascunho);
+}
+
+export function descartarRascunho(): void {
+  rascunho.config = undefined;
+  rascunho.produtos = pendenciasVazias();
+  rascunho.cupons = pendenciasVazias();
+  persistirRascunho();
+}
+
+// Aplica sobre um registro só os campos alterados (null = remover o campo).
+export function aplicarAlteracoes<T extends object>(
+  atual: T,
+  alteracoes: Record<string, unknown>,
+): T {
+  const resultado = { ...atual } as Record<string, unknown>;
+  for (const [campo, valor] of Object.entries(alteracoes)) {
+    if (valor === null) {
+      delete resultado[campo];
+    } else {
+      resultado[campo] = valor;
+    }
+  }
+  return resultado as T;
+}
+
+// Campos em que `novo` difere de `atual` (null para os que deixaram de existir).
+export function diferencas<T extends object>(atual: T, novo: T): Record<string, unknown> {
+  const campos = new Set([...Object.keys(atual), ...Object.keys(novo)]);
+  const mudou: Record<string, unknown> = {};
+  for (const campo of campos) {
+    const antes = (atual as Record<string, unknown>)[campo];
+    const depois = (novo as Record<string, unknown>)[campo];
+    if (JSON.stringify(antes) !== JSON.stringify(depois)) {
+      mudou[campo] = depois === undefined ? null : depois;
+    }
+  }
+  return mudou;
+}
+
+// Como a lista vai ficar depois do reinício, com a marca do que está pendente.
+export function listaComPendencias<T extends object>(
+  atuais: T[],
+  chave: (registro: T) => string,
+  pendencias: PendenciasLista<T>,
+): (T & { pendente?: MudancaPendente })[] {
+  const lista: (T & { pendente?: MudancaPendente })[] = atuais.map((registro) => {
+    const id = chave(registro);
+    if (pendencias.removidos.includes(id)) {
+      return { ...registro, pendente: 'removido' };
+    }
+    const alteracoes = pendencias.alterados[id];
+    return alteracoes ? { ...aplicarAlteracoes(registro, alteracoes), pendente: 'alterado' } : registro;
+  });
+  return [...lista, ...pendencias.novos.map((registro) => ({ ...registro, pendente: 'novo' as const }))];
+}
+
+function aplicarPendenciasLista<T extends object>(
+  atuais: T[],
+  chave: (registro: T) => string,
+  pendencias: PendenciasLista<T>,
+): T[] {
+  return [
+    ...atuais
+      .filter((registro) => !pendencias.removidos.includes(chave(registro)))
+      .map((registro) => {
+        const alteracoes = pendencias.alterados[chave(registro)];
+        return alteracoes ? aplicarAlteracoes(registro, alteracoes) : registro;
+      }),
+    ...pendencias.novos,
+  ];
+}
+
+// Coloca em vigor tudo o que o Administrador deixou pendente. Roda uma vez, quando o
+// servidor inicia; o rascunho é apagado em seguida.
+export function aplicarRascunho(pendente: RascunhoSalvo): void {
+  if (pendente.config) {
+    Object.assign(config, mesclarConfig(pendente.config));
+  }
+  itensCardapio.splice(
+    0,
+    itensCardapio.length,
+    ...aplicarPendenciasLista(itensCardapio, (item) => item.id, pendente.produtos),
+  );
+  // Os usos já contados de cada cupom continuam valendo: o administrador não os edita.
+  const usos = new Map([...cupons.values()].map((cupom) => [cupom.codigo, cupom.usos]));
+  const novosCupons = aplicarPendenciasLista([...cupons.values()], (c) => c.codigo, pendente.cupons);
+  cupons.clear();
+  for (const cupom of novosCupons) {
+    cupons.set(cupom.codigo, { ...cupom, usos: usos.get(cupom.codigo) ?? cupom.usos });
+  }
+}
+
+const rascunhoSalvo = carregarRascunho();
+if (rascunhoSalvo) {
+  aplicarRascunho(rascunhoSalvo);
+  salvarRascunho(null);
+  persistir();
+}
+
+// ---------- Pedido ----------
 
 export function obterOuCriarPedido(pedidoId: string): Pedido {
   let pedido = pedidos.get(pedidoId);
@@ -157,7 +288,8 @@ export function obterOuCriarPedido(pedidoId: string): Pedido {
   return pedido;
 }
 
-// Depois de pago, o pedido não aceita mais itens, cupom, pontos nem troca de CPF.
+// Depois de pago (ou enviado ao caixa), o pedido não aceita mais itens, cupom, pontos
+// nem troca de CPF.
 export function exigirPedidoEmMontagem(pedido: Pedido): void {
   if (pedido.status !== 'em_montagem') {
     throw new HttpError(409, 'Este pedido já foi pago e não pode mais ser alterado');
@@ -171,10 +303,98 @@ export function obterClienteDoPedido(pedido: Pedido): ClienteFidelidade | undefi
   return [...clientesFidelidade.values()].find((cliente) => cliente.id === pedido.clienteId);
 }
 
-// US 26: um item pode ser comprado se o administrador o deixou disponível e, quando há
-// controle de quantidade, ainda restam unidades.
+// ---------- Itens, combos e estoque ----------
+
+export function obterItem(id: string): ItemCardapio | undefined {
+  return itensCardapio.find((item) => item.id === id);
+}
+
+// O que uma unidade do item consome do estoque: o próprio item ou, num combo, os itens
+// que o compõem.
+function partesDoItem(id: string): { itemCardapioId: string; quantidade: number }[] {
+  return obterItem(id)?.componentes ?? [{ itemCardapioId: id, quantidade: 1 }];
+}
+
+// Quantas unidades de cada item (não combo) as linhas consomem, abrindo os combos.
+export function demandaPorItem(
+  linhas: Pick<ItemPedido, 'itemCardapioId' | 'quantidade'>[],
+): Map<string, number> {
+  const demanda = new Map<string, number>();
+  for (const linha of linhas) {
+    for (const parte of partesDoItem(linha.itemCardapioId)) {
+      const atual = demanda.get(parte.itemCardapioId) ?? 0;
+      demanda.set(parte.itemCardapioId, atual + parte.quantidade * linha.quantidade);
+    }
+  }
+  return demanda;
+}
+
+// Primeiro item cujo estoque não comporta a demanda, para explicar a recusa.
+export function itemSemEstoque(
+  demanda: Map<string, number>,
+): { item: ItemCardapio; restam: number } | undefined {
+  for (const [id, unidades] of demanda) {
+    const item = obterItem(id);
+    if (item?.estoque !== undefined && unidades > item.estoque) {
+      return { item, restam: item.estoque };
+    }
+  }
+  return undefined;
+}
+
+// Unidades à venda do item. Num combo, quantos combos os itens dele ainda permitem
+// montar; sem controle de quantidade em nenhum deles, `undefined`.
+export function estoqueEfetivo(item: ItemCardapio): number | undefined {
+  if (!item.componentes) {
+    return item.estoque;
+  }
+  let maximo: number | undefined;
+  for (const parte of item.componentes) {
+    const estoque = obterItem(parte.itemCardapioId)?.estoque;
+    if (estoque !== undefined) {
+      const cabe = Math.floor(estoque / parte.quantidade);
+      maximo = maximo === undefined ? cabe : Math.min(maximo, cabe);
+    }
+  }
+  return maximo;
+}
+
+// US 26 / US 34: um item pode ser comprado se está disponível e, com controle de
+// quantidade, ainda restam unidades. Um combo também precisa de todos os seus itens
+// disponíveis: assim que um deles esgota, o combo esgota junto.
 export function itemDisponivel(item: ItemCardapio): boolean {
-  return item.disponivel && (item.estoque === undefined || item.estoque > 0);
+  if (!item.disponivel) {
+    return false;
+  }
+  if (item.componentes) {
+    const componentesOk = item.componentes.every((parte) => {
+      const componente = obterItem(parte.itemCardapioId);
+      return componente !== undefined && itemDisponivel(componente);
+    });
+    if (!componentesOk) {
+      return false;
+    }
+  }
+  const estoque = estoqueEfetivo(item);
+  return estoque === undefined || estoque > 0;
+}
+
+// Até quantas unidades da linha cabem no estoque, descontando o que as outras linhas do
+// carrinho usam dos mesmos itens (ex.: batata avulsa + combo com batata).
+function quantidadeMaximaDaLinha(pedido: Pedido, linha: ItemPedido): number | undefined {
+  const outras = demandaPorItem(
+    pedido.itens.filter((outra) => outra.itemCardapioId !== linha.itemCardapioId),
+  );
+  let maximo: number | undefined;
+  for (const parte of partesDoItem(linha.itemCardapioId)) {
+    const estoque = obterItem(parte.itemCardapioId)?.estoque;
+    if (estoque !== undefined) {
+      const sobra = estoque - (outras.get(parte.itemCardapioId) ?? 0);
+      const cabe = Math.max(Math.floor(sobra / parte.quantidade), 0);
+      maximo = maximo === undefined ? cabe : Math.min(maximo, cabe);
+    }
+  }
+  return maximo;
 }
 
 export function calcularSubtotal(pedido: Pedido): number {
@@ -184,12 +404,57 @@ export function calcularSubtotal(pedido: Pedido): number {
   );
 }
 
+// ---------- Cupons ----------
+
+function formatarReais(centavos: number): string {
+  return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Valor das linhas do pedido sobre as quais o cupom incide: todas, ou só as dos itens ou
+// categorias a que o cupom está atrelado.
+export function subtotalElegivel(pedido: Pedido, cupom: Cupom): number {
+  const alvo = cupom.aplicaEm;
+  return pedido.itens
+    .filter((linha) => {
+      if (!alvo) {
+        return true;
+      }
+      if (alvo.tipo === 'itens') {
+        return alvo.ids.includes(linha.itemCardapioId);
+      }
+      const categoria = obterItem(linha.itemCardapioId)?.categoria;
+      return categoria !== undefined && alvo.ids.includes(categoria);
+    })
+    .reduce((total, linha) => total + linha.precoUnitarioCentavos * linha.quantidade, 0);
+}
+
+// Por que o cupom não serve para este pedido (pedido mínimo ou nenhum item participante),
+// ou `undefined` se serve. Vigência e limite de usos ficam em modules/cupom.
+export function motivoCupomNaoServe(pedido: Pedido, cupom: Cupom): string | undefined {
+  if (cupom.pedidoMinimoCentavos && calcularSubtotal(pedido) < cupom.pedidoMinimoCentavos) {
+    return `o cupom ${cupom.codigo} vale para pedidos a partir de ${formatarReais(cupom.pedidoMinimoCentavos)}`;
+  }
+  if (cupom.aplicaEm && subtotalElegivel(pedido, cupom) === 0) {
+    const nomes =
+      cupom.aplicaEm.tipo === 'itens'
+        ? cupom.aplicaEm.ids.map((id) => obterItem(id)?.nome ?? id)
+        : cupom.aplicaEm.ids.map((id) => config.categorias.find((c) => c.id === id)?.nome ?? id);
+    return `o cupom ${cupom.codigo} vale só para ${nomes.join(', ')}`;
+  }
+  return undefined;
+}
+
 export function calcularResultadoCupom(pedido: Pedido, cupom: Cupom): ResultadoAplicacaoCupom {
   const subtotal = calcularSubtotal(pedido);
-  const descontoCentavos =
+  const base = subtotalElegivel(pedido, cupom);
+  let descontoCentavos =
     cupom.tipoDesconto === 'percentual'
-      ? Math.round((subtotal * cupom.valor) / 100)
-      : Math.min(cupom.valor, subtotal);
+      ? Math.round((base * cupom.valor) / 100)
+      : Math.min(cupom.valor, base);
+  // Teto do desconto (ex.: 10% limitado a R$ 50,00).
+  if (cupom.descontoMaximoCentavos !== undefined) {
+    descontoCentavos = Math.min(descontoCentavos, cupom.descontoMaximoCentavos);
+  }
 
   return {
     cupom,
@@ -197,6 +462,8 @@ export function calcularResultadoCupom(pedido: Pedido, cupom: Cupom): ResultadoA
     valorTotalComDescontoCentavos: Math.max(subtotal - descontoCentavos, 0),
   };
 }
+
+// ---------- Pontos ----------
 
 // Equivalência entre pontos de fidelidade e dinheiro, definida pelo administrador.
 export function pontosParaCentavos(pontos: number): number {
@@ -208,22 +475,27 @@ function pontosParaCobrir(centavos: number): number {
 }
 
 // Recalcula tudo o que é derivado do pedido: subtotal, descontos (cupom primeiro,
-// pontos sobre o que sobra), valor a pagar e o limite de quantidade de cada item.
+// pontos sobre o que sobra), valor a pagar e o limite de quantidade de cada linha.
 // Deve ser chamada depois de qualquer mudança em itens, cupom ou pontos.
 export function recalcularPedido(pedido: Pedido): void {
-  for (const item of pedido.itens) {
-    item.quantidadeMaxima = itensCardapio.find((i) => i.id === item.itemCardapioId)?.estoque;
+  for (const linha of pedido.itens) {
+    linha.quantidadeMaxima = quantidadeMaximaDaLinha(pedido, linha);
   }
   pedido.valorTotalCentavos = calcularSubtotal(pedido);
 
   const cupom = pedido.cupomAplicado ? cupons.get(pedido.cupomAplicado) : undefined;
-  if (!cupom) {
+  if (pedido.cupomAplicado && !cupom) {
     // O cupom pode ter sido excluído pelo administrador depois de aplicado.
     pedido.cupomAplicado = undefined;
   }
-  pedido.descontoCupomCentavos = cupom
-    ? calcularResultadoCupom(pedido, cupom).descontoCentavos
-    : 0;
+  // O carrinho mudou e deixou de cumprir a regra do cupom: ele sai, com aviso.
+  const motivo = cupom ? motivoCupomNaoServe(pedido, cupom) : undefined;
+  if (cupom && motivo) {
+    pedido.cupomAplicado = undefined;
+    pedido.avisoCupom = `O cupom ${cupom.codigo} saiu do pedido: ${motivo}.`;
+  }
+  pedido.descontoCupomCentavos =
+    cupom && !motivo ? calcularResultadoCupom(pedido, cupom).descontoCentavos : 0;
 
   // Nunca se gastam mais pontos do que o necessário para zerar o pedido.
   const restante = pedido.valorTotalCentavos - pedido.descontoCupomCentavos;
@@ -243,12 +515,15 @@ export function calcularTotalFinal(pedido: Pedido): number {
 
 // ---------- Número do pedido ----------
 
+// Pedido que segura um número: no caixa, pago ou concluído e ainda não entregue.
 export function pedidoAguardaRetirada(pedido: Pedido): boolean {
-  return pedido.numero !== undefined && pedido.entregueEm === undefined;
+  return (
+    pedido.numero !== undefined && pedido.entregueEm === undefined && pedido.status !== 'cancelado'
+  );
 }
 
 // Sorteia um número de três dígitos que nenhum pedido em aberto esteja usando. O número
-// só volta a ficar livre quando a entrega do pedido é confirmada (tela de administrador).
+// só volta a ficar livre quando a entrega é confirmada ou o pedido é cancelado.
 export function reservarNumeroPedido(): string {
   const emUso = new Set(
     [...pedidos.values()].filter(pedidoAguardaRetirada).map((pedido) => pedido.numero),

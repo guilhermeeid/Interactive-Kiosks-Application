@@ -15,7 +15,7 @@ import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
 import { registrarConsentimentos } from '../consentimento/consentimento.service';
 import type { RegistrarConsentimentosBody } from '../consentimento/consentimento.types';
 import { VERSAO_TERMO } from '../consentimento/termo';
-import { informarCpfNota, pularIdentificacao } from '../identificacao/identificacao.service';
+import { informarCpfNota } from '../identificacao/identificacao.service';
 import { escolherFormaPagamento } from '../pagamento/pagamento.service';
 import { dispensarComprovante, enviarComprovante } from './comprovante.service';
 
@@ -49,8 +49,8 @@ async function pedidoComItem(): Promise<string> {
   return pedidoId;
 }
 
-const pagar = (pedidoId: string) =>
-  escolherFormaPagamento({ pedidoId, formaPagamento: 'dinheiro' }, new MockPagamentoGateway());
+const pagar = (pedidoId: string, formaPagamento: 'pix' | 'dinheiro' = 'pix') =>
+  escolherFormaPagamento({ pedidoId, formaPagamento, consumo: 'local' }, new MockPagamentoGateway());
 
 describe('enviarComprovante', () => {
   it('emite a nota fiscal, notifica o cliente e marca o pedido como finalizado', async () => {
@@ -181,14 +181,15 @@ describe('dispensarComprovante', () => {
     expect(segundo.notaFiscalUrl).toBe(primeiro.notaFiscalUrl);
   });
 
-  it('quem pulou a identificação fecha o pedido sem nenhum dado pessoal vinculado', async () => {
+  // US 10 / US 29: quem recusou o comprovante não é perguntado de novo.
+  it('quem recusou o comprovante fecha o pedido sem e-mail nem telefone', async () => {
     const pedidoId = await pedidoComItem();
-    await pularIdentificacao({ pedidoId, versaoTermo: VERSAO_TERMO });
     await pagar(pedidoId);
+    await consentir(pedidoId, { comprovante: false });
     const emissor = new EmissorRegistrado();
     const notificacao = new NotificacaoRegistrada();
 
-    // O totem nem oferece o envio; se alguém tentar pela API, é recusado.
+    // O totem nem oferece o envio de novo; se alguém tentar pela API, é recusado.
     await expect(consentir(pedidoId, { comprovante: true })).rejects.toMatchObject({
       statusCode: 409,
     });
@@ -197,12 +198,18 @@ describe('dispensarComprovante', () => {
     ).rejects.toMatchObject({ statusCode: 403 });
 
     const comprovante = await dispensarComprovante({ pedidoId }, emissor);
-    const pedido = await obterCarrinho(pedidoId);
-    expect(pedido.cpfNaNota).toBeUndefined();
-    expect(pedido.clienteId).toBeUndefined();
     expect(comprovante.destino).toBeUndefined();
-    expect(comprovante.cpfNaNotaMascarado).toBeUndefined();
     expect(notificacao.enviados).toEqual([]);
+  });
+
+  // Item 2: no pagamento em dinheiro, a nota é emitida no caixa, não no totem.
+  it('pedido que espera o caixa não tem nota emitida pelo totem', async () => {
+    const pedidoId = await pedidoComItem();
+    await pagar(pedidoId, 'dinheiro');
+    await expect(dispensarComprovante({ pedidoId }, new MockEmissorFiscal())).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    expect(comprovantes.has(pedidoId)).toBe(false);
   });
 
   it('recusa pedido que ainda não foi pago', async () => {

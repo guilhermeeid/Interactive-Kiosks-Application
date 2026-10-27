@@ -17,9 +17,9 @@ export interface InformarCpfNotaBody {
   cpf: string; // LGPD: dado pessoal — exige consentimento/criptografia
 }
 
-export interface PularIdentificacaoBody {
+export interface InformarFidelidadePorQrBody {
   pedidoId: string;
-  versaoTermo: string; // versão do termo de consentimento exibido ao cliente
+  codigo: string; // id do cadastro de fidelidade, lido do QR Code do cartão
 }
 
 export interface UsarPontosBody {

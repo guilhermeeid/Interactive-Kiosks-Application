@@ -68,9 +68,13 @@ export async function registrarConsentimentos(body: RegistrarConsentimentosBody)
   }
 
   const pedido = obterOuCriarPedido(body.pedidoId);
-  // US 10: quem pulou a identificação não volta a fornecer dados pessoais neste pedido.
-  if (pedido.semDadosPessoais && decisoes.some(([, aceito]) => aceito === true)) {
-    throw new HttpError(409, 'Este pedido segue sem dados pessoais');
+  // US 10: cada dado pessoal é perguntado uma vez só. O que o cliente recusou (ou pulou)
+  // não volta a ser pedido nem aceito neste pedido.
+  const jaRecusada = decisoes.find(
+    ([finalidade, aceito]) => aceito === true && pedido.consentimentos?.[finalidade] === false,
+  );
+  if (jaRecusada) {
+    throw new HttpError(409, 'Você já recusou esse uso de dado neste pedido');
   }
 
   for (const [finalidade, aceito] of decisoes) {

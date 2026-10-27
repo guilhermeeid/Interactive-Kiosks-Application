@@ -1,20 +1,35 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import type { ConfigTotem } from '@totem/shared';
-import type { AdminApi } from '../../services/adminApi';
+import type { ConfigTotem, MudancaPendente } from '@totem/shared';
+import type { AdminApi, FuncionarioApi } from '../../services/adminApi';
+import { BotaoTouch } from '../../components/BotaoTouch';
+import { PRAZO_ATUALIZACAO_CARDAPIO } from '../../utils/atualizacaoCardapio';
+import { redimensionarImagem } from '../../utils/imagem';
 
-// Peças compartilhadas pelas abas da tela de administrador.
+// Peças compartilhadas pelas abas da área restrita.
 
+// Abas do modo Administrador.
 export interface PropsAba {
   api: AdminApi;
+  // A configuração como vai ficar depois do reinício (com o que estiver pendente).
   config: ConfigTotem;
-  // Salva a configuração inteira e devolve a versão gravada (com ids e textos já
-  // normalizados pelo servidor).
+  // Salva a configuração inteira (pendente) e devolve a versão gravada (com ids e
+  // textos já normalizados pelo servidor).
   salvarConfig: (config: ConfigTotem) => Promise<ConfigTotem>;
+  // Avisa o painel que algo foi salvo, para atualizar a faixa de pendências.
+  aoSalvar: () => void;
 }
 
-// Mudanças de configuração só chegam ao totem quando ele é reiniciado.
-export const SALVO_AGUARDA_REINICIO =
-  'Salvo. O totem passa a usar as mudanças quando for reiniciado.';
+// Abas do modo Funcionário.
+export interface PropsAbaFuncionario {
+  api: FuncionarioApi;
+}
+
+// Item 7: o que o Administrador salva só entra em vigor quando o servidor é reiniciado.
+export const SALVO_PENDENTE =
+  'Salvo como pendente. Entra em vigor quando o servidor for reiniciado.';
+
+// Item 7 / US 34: o que o Funcionário muda vale na hora.
+export const VALE_NA_HORA = `Vale na hora: os totens atualizam o cardápio em até ${PRAZO_ATUALIZACAO_CARDAPIO}.`;
 
 export interface Retorno {
   tipo: 'ok' | 'erro';
@@ -99,5 +114,66 @@ export function Opcao({
         {dica && <small>{dica}</small>}
       </span>
     </label>
+  );
+}
+
+// Marca de algo que o Administrador mudou e ainda não está em vigor.
+export function SeloPendente({ pendente }: { pendente?: MudancaPendente }) {
+  if (!pendente) {
+    return null;
+  }
+  const textos: Record<MudancaPendente, string> = {
+    novo: 'Novo · pendente',
+    alterado: 'Alterado · pendente',
+    removido: 'Sai no reinício',
+  };
+  return <span className={`selo-pendente selo-pendente--${pendente}`}>{textos[pendente]}</span>;
+}
+
+// Envio de imagem (foto, ícone, capa, publicidade): reduz no navegador, envia e devolve
+// o endereço gravado no servidor. Sem `aoRemover`, não mostra o botão de tirar.
+export function CampoImagem({
+  rotulo,
+  dica,
+  ladoMaximo,
+  enviarImagem,
+  executar,
+  aoEnviar,
+  aoRemover,
+  rotuloRemover = 'Tirar a imagem',
+}: {
+  rotulo: string;
+  dica?: string;
+  ladoMaximo: number;
+  enviarImagem: (dataUrl: string) => Promise<{ url: string }>;
+  executar: (acao: () => Promise<unknown>) => Promise<boolean>;
+  aoEnviar: (url: string) => void;
+  aoRemover?: () => void;
+  rotuloRemover?: string;
+}) {
+  return (
+    <>
+      <Campo rotulo={rotulo} dica={dica}>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={(evento) => {
+            const arquivo = evento.target.files?.[0];
+            evento.target.value = '';
+            if (arquivo) {
+              executar(async () => {
+                const { url } = await enviarImagem(await redimensionarImagem(arquivo, ladoMaximo));
+                aoEnviar(url);
+              });
+            }
+          }}
+        />
+      </Campo>
+      {aoRemover && (
+        <BotaoTouch variante="perigo" onClick={aoRemover}>
+          {rotuloRemover}
+        </BotaoTouch>
+      )}
+    </>
   );
 }

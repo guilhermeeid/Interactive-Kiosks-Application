@@ -5,8 +5,8 @@ import type {
   TermoConsentimento,
 } from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
-import { buscarTermoConsentimento } from '../../services/apiClient';
-import { MensagemRetorno, useAcao, type PropsAba } from './comum';
+import { buscarTermoConsentimento, urlTermosPadrao } from '../../services/apiClient';
+import { Campo, MensagemRetorno, SALVO_PENDENTE, useAcao, type PropsAba } from './comum';
 
 const NOME_FINALIDADE: Record<FinalidadeConsentimento, string> = {
   cpf_nota: 'CPF na nota fiscal',
@@ -19,10 +19,12 @@ const FINALIDADES = Object.keys(NOME_FINALIDADE) as FinalidadeConsentimento[];
 // US 29: o termo de consentimento que o totem exibe e a trilha de auditoria de cada
 // decisão dos clientes — data, hora, versão do termo e finalidade. Só leitura: a
 // auditoria não guarda CPF, e-mail nem telefone, apenas a decisão e o pedido.
-export function AbaPrivacidade({ api }: PropsAba) {
+export function AbaPrivacidade({ api, config, salvarConfig }: PropsAba) {
   const [termo, setTermo] = useState<TermoConsentimento | null>(null);
   const [registros, setRegistros] = useState<RegistroConsentimento[]>([]);
   const { retorno, executar } = useAcao();
+  const [urlTermos, setUrlTermos] = useState(config.urlTermos ?? '');
+  const salvarUrl = useAcao();
 
   const carregar = useCallback(
     () =>
@@ -48,8 +50,8 @@ export function AbaPrivacidade({ api }: PropsAba) {
         {termo && (
           <>
             <p className="admin-dica">
-              Versão {termo.versao}. O cliente vê este aviso antes de digitar qualquer dado
-              pessoal e marca, uma a uma, as finalidades com que concorda.
+              Versão {termo.versao}. O cliente vê este aviso antes de digitar qualquer dado pessoal
+              e marca, uma a uma, as finalidades com que concorda.
             </p>
             <p>{termo.aviso}</p>
             <div className="admin-lista">
@@ -64,11 +66,43 @@ export function AbaPrivacidade({ api }: PropsAba) {
         )}
       </section>
 
+      {/* Item 4: o QR Code de "Termos e Condições" abre este endereço no celular do
+          cliente. Sem ele, aponta para a página servida pela API, que precisa ser
+          acessível pela internet para o celular conseguir abrir. */}
+      <form
+        className="admin-secao"
+        onSubmit={(evento) => {
+          evento.preventDefault();
+          salvarUrl.executar(
+            () => salvarConfig({ ...config, urlTermos: urlTermos.trim() || undefined }),
+            SALVO_PENDENTE,
+          );
+        }}
+      >
+        <h2>Endereço dos Termos e Condições (QR Code)</h2>
+        <Campo
+          rotulo="Endereço público (https://...)"
+          dica={`Vazio = página da própria API: ${urlTermosPadrao()}`}
+        >
+          <input
+            type="text"
+            inputMode="url"
+            placeholder="https://minhaloja.com.br/termos"
+            value={urlTermos}
+            onChange={(evento) => setUrlTermos(evento.target.value)}
+          />
+        </Campo>
+        <MensagemRetorno retorno={salvarUrl.retorno} />
+        <BotaoTouch type="submit" variante="primario" disabled={salvarUrl.ocupado}>
+          Salvar endereço
+        </BotaoTouch>
+      </form>
+
       <section className="admin-secao">
         <h2>Auditoria do consentimento</h2>
         <p className="admin-dica">
-          Uma linha por decisão, da mais recente para a mais antiga (até 200). Recusas também
-          ficam registradas.
+          Uma linha por decisão, da mais recente para a mais antiga (até 200). Recusas também ficam
+          registradas.
         </p>
         <div className="admin-lista admin-lista--tabela">
           <table className="admin-tabela">

@@ -9,3 +9,8 @@ export function formatarCpf(digitos: string): string {
     .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
     .replace(/\.(\d{3})(\d)/, '.$1-$2');
 }
+
+// Só o miolo do CPF aparece na tela do totem, que é pública: ***.456.789-**
+export function mascararCpf(digitos: string): string {
+  return `***.${digitos.slice(3, 6)}.${digitos.slice(6, 9)}-**`;
+}

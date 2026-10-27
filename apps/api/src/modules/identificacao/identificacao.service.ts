@@ -8,13 +8,13 @@ import {
   recalcularPedido,
 } from '../../db/memory-store';
 import { HttpError } from '../../errors';
-import { exigirConsentimento, registrarConsentimentos } from '../consentimento/consentimento.service';
+import { exigirConsentimento } from '../consentimento/consentimento.service';
 import { cpfValido, limparCpf } from './cpf';
 import type {
   ConsultarCpfBody,
   InformarCpfNotaBody,
   InformarFidelidadeBody,
-  PularIdentificacaoBody,
+  InformarFidelidadePorQrBody,
   UsarPontosBody,
 } from './identificacao.types';
 
@@ -70,42 +70,40 @@ export async function informarFidelidade(
   return cliente;
 }
 
+// Fidelidade pelo QR Code do cartão do cliente (câmera do totem). O QR leva o id do
+// cadastro, nunca o CPF.
+export async function informarFidelidadePorQr(
+  body: InformarFidelidadePorQrBody,
+): Promise<ClienteFidelidade> {
+  const pedido = obterOuCriarPedido(body.pedidoId);
+  exigirPedidoEmMontagem(pedido);
+  exigirConsentimento(pedido, 'fidelidade');
+
+  const cliente = config.fidelidade.habilitado
+    ? [...clientesFidelidade.values()].find((c) => c.id === body.codigo)
+    : undefined;
+  if (!cliente) {
+    throw new HttpError(404, 'Cartão de fidelidade não encontrado');
+  }
+  if (pedido.clienteId !== cliente.id) {
+    pedido.pontosUsados = undefined;
+    recalcularPedido(pedido);
+  }
+  pedido.clienteId = cliente.id;
+  return cliente;
+}
+
 // US 09: Informar CPF na nota — o CPF, já conferido pelos dígitos verificadores, fica no
 // pedido e segue para o emissor fiscal quando a nota é emitida (ver modules/comprovante).
+// É independente do CPF da fidelidade: pode ser o mesmo, outro ou nenhum (não há regra
+// fiscal que exija que sejam iguais).
 // LGPD: dado pessoal — exige consentimento/criptografia (cpf)
 export async function informarCpfNota(body: InformarCpfNotaBody): Promise<Pedido> {
   const cpf = exigirCpfValido(body.cpf);
   const pedido = obterOuCriarPedido(body.pedidoId);
   exigirPedidoEmMontagem(pedido);
   exigirConsentimento(pedido, 'cpf_nota');
-
-  // Trocar de CPF desfaz o vínculo de fidelidade (e os pontos) do CPF anterior.
-  if (pedido.cpfNaNota !== cpf) {
-    pedido.clienteId = undefined;
-    pedido.pontosUsados = undefined;
-    recalcularPedido(pedido);
-  }
   pedido.cpfNaNota = cpf;
-  return pedido;
-}
-
-// US 10: Pular a identificação — o pedido segue sem nenhum dado pessoal e, até o fim
-// desta sessão de compra, o totem não pede dados pessoais de novo (nem a API os aceita).
-// A recusa das finalidades apresentadas fica registrada na auditoria (US 29).
-export async function pularIdentificacao(body: PularIdentificacaoBody): Promise<Pedido> {
-  const pedido = obterOuCriarPedido(body.pedidoId);
-  exigirPedidoEmMontagem(pedido);
-
-  await registrarConsentimentos({
-    pedidoId: pedido.id,
-    versaoTermo: body.versaoTermo,
-    decisoes: config.fidelidade.habilitado
-      ? { cpf_nota: false, fidelidade: false }
-      : { cpf_nota: false },
-  });
-  // A recusa já tira CPF e fidelidade do pedido; aqui só fica a marca de que não se
-  // pergunta de novo.
-  pedido.semDadosPessoais = true;
   return pedido;
 }
 

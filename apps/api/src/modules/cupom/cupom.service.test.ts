@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { criarConfigPadrao } from '../../db/config-padrao';
 import { calcularTotalFinal, config, cupons } from '../../db/memory-store';
 import { HttpError } from '../../errors';
-import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
+import { adicionarItem, atualizarItem, obterCarrinho } from '../carrinho/carrinho.service';
 import { registrarConsentimentos } from '../consentimento/consentimento.service';
 import { VERSAO_TERMO } from '../consentimento/termo';
 import { informarFidelidade, usarPontos } from '../identificacao/identificacao.service';
@@ -183,6 +183,34 @@ describe('regras do administrador para cupons', () => {
     expect(() => validarCupom({ ...cupom, usos: 2 })).toThrow(/esgotado/);
   });
 
+  // US 36: um cupom zerado ou negativo gravado direto nos dados nunca dá desconto.
+  it('recusa cupom gravado com desconto zero ou negativo', async () => {
+    cupons.set('ZERO', { codigo: 'ZERO', tipoDesconto: 'valor_fixo', valor: 0, ativo: true });
+    cupons.set('NEGATIVO', {
+      codigo: 'NEGATIVO',
+      tipoDesconto: 'percentual',
+      valor: -15,
+      ativo: true,
+    });
+    try {
+      const pedidoId = randomUUID();
+      await adicionarItem({
+        pedidoId,
+        item: { itemCardapioId: 'lanche-classico', nome: 'Lanche Clássico', quantidade: 1 },
+      });
+      await expect(aplicarCupom({ pedidoId, codigo: 'ZERO' })).rejects.toThrow(
+        'Cupom "ZERO" não tem um desconto válido',
+      );
+      await expect(aplicarCupom({ pedidoId, codigo: 'NEGATIVO' })).rejects.toThrow(
+        /não tem um desconto válido/,
+      );
+      expect(calcularTotalFinal(await obterCarrinho(pedidoId))).toBe(1890);
+    } finally {
+      cupons.delete('ZERO');
+      cupons.delete('NEGATIVO');
+    }
+  });
+
   it('recusa cupom em pedido com pontos quando o administrador não permite somar', async () => {
     config.fidelidade.combinaComCupom = false;
     const pedidoId = randomUUID();
@@ -221,6 +249,10 @@ describe('situacaoCupom', () => {
     );
     expect(situacaoCupom({ ...base, limiteUsos: 3, usos: 3 }, agora)).toBe('esgotado');
     expect(situacaoCupom({ ...base, limiteUsos: 3, usos: 2 }, agora)).toBe('valido');
+    // US 36: valor sem sentido vence as demais regras.
+    expect(situacaoCupom({ ...base, valor: 0 }, agora)).toBe('sem_desconto');
+    expect(situacaoCupom({ ...base, valor: -5, ativo: false }, agora)).toBe('sem_desconto');
+    expect(situacaoCupom({ ...base, valor: 101 }, agora)).toBe('sem_desconto');
   });
 
   it('respeita a hora, não só a data, da vigência', () => {
@@ -302,5 +334,102 @@ describe('vigência do cupom', () => {
       new Date('2026-10-01T09:00:00-03:00'),
     );
     expect(resultado.descontoCentavos).toBe(Math.round(1890 * 0.1));
+  });
+});
+
+// Item 6: cupom atrelado a itens ou categorias, com pedido mínimo e teto de desconto.
+describe('regras de cupom por item, categoria e valor', () => {
+  const pedidoCom = async (linhas: [string, number][]) => {
+    const pedidoId = randomUUID();
+    for (const [itemCardapioId, quantidade] of linhas) {
+      await adicionarItem({ pedidoId, item: { itemCardapioId, nome: 'x', quantidade } });
+    }
+    return pedidoId;
+  };
+  const criar = (cupom: Cupom) => cupons.set(cupom.codigo, cupom);
+
+  it('cupom de categoria desconta só sobre os itens dela', async () => {
+    criar({
+      codigo: 'LANCHES20',
+      tipoDesconto: 'percentual',
+      valor: 20,
+      aplicaEm: { tipo: 'categorias', ids: ['lanches'] },
+      ativo: true,
+    });
+    // Lanche R$ 18,90 + batata R$ 9,90: 20% só dos R$ 18,90.
+    const pedidoId = await pedidoCom([
+      ['lanche-classico', 1],
+      ['batata-frita', 1],
+    ]);
+    const resultado = await aplicarCupom({ pedidoId, codigo: 'LANCHES20' });
+    expect(resultado.descontoCentavos).toBe(378);
+  });
+
+  it('cupom de item recusa carrinho sem o item e desconta só dele', async () => {
+    criar({
+      codigo: 'BATATA5',
+      tipoDesconto: 'valor_fixo',
+      valor: 500,
+      aplicaEm: { tipo: 'itens', ids: ['batata-frita'] },
+      ativo: true,
+    });
+    const semBatata = await pedidoCom([['lanche-classico', 1]]);
+    await expect(aplicarCupom({ pedidoId: semBatata, codigo: 'BATATA5' })).rejects.toThrow(
+      'O cupom BATATA5 vale só para Batata Frita',
+    );
+    const comBatata = await pedidoCom([
+      ['lanche-classico', 1],
+      ['batata-frita', 1],
+    ]);
+    expect((await aplicarCupom({ pedidoId: comBatata, codigo: 'BATATA5' })).descontoCentavos).toBe(
+      500,
+    );
+  });
+
+  it('respeita o pedido mínimo e o teto do desconto percentual', async () => {
+    criar({
+      codigo: 'DEZTETO',
+      tipoDesconto: 'percentual',
+      valor: 10,
+      pedidoMinimoCentavos: 3000,
+      descontoMaximoCentavos: 300,
+      ativo: true,
+    });
+    const pequeno = await pedidoCom([['lanche-classico', 1]]); // R$ 18,90
+    await expect(aplicarCupom({ pedidoId: pequeno, codigo: 'DEZTETO' })).rejects.toThrow(
+      /vale para pedidos a partir de R\$\s30,00/,
+    );
+    // R$ 74,70: 10% daria R$ 7,47, mas o teto é R$ 3,00.
+    const grande = await pedidoCom([['lanche-duplo', 3]]);
+    expect((await aplicarCupom({ pedidoId: grande, codigo: 'DEZTETO' })).descontoCentavos).toBe(
+      300,
+    );
+  });
+
+  it('se o carrinho deixa de cumprir a regra, o cupom sai sozinho com aviso', async () => {
+    criar({
+      codigo: 'MINIMO30',
+      tipoDesconto: 'valor_fixo',
+      valor: 500,
+      pedidoMinimoCentavos: 3000,
+      ativo: true,
+    });
+    const pedidoId = await pedidoCom([['lanche-classico', 2]]); // R$ 37,80
+    await aplicarCupom({ pedidoId, codigo: 'MINIMO30' });
+
+    const pedido = await atualizarItem({
+      pedidoId,
+      itemCardapioId: 'lanche-classico',
+      quantidade: 1,
+    });
+    expect(pedido.cupomAplicado).toBeUndefined();
+    expect(pedido.descontoCupomCentavos).toBe(0);
+    expect(pedido.avisoCupom).toMatch(
+      /O cupom MINIMO30 saiu do pedido: o cupom MINIMO30 vale para pedidos a partir de/,
+    );
+
+    // O aviso continua visível ao reler o carrinho, e some quando o cliente mexe no cupom.
+    expect((await obterCarrinho(pedidoId)).avisoCupom).toBeDefined();
+    expect((await removerCupom(pedidoId)).avisoCupom).toBeUndefined();
   });
 });

@@ -1,12 +1,23 @@
-// Tipos da configuração do totem, editada na tela de administrador (/admin) e lida
-// pelo totem ao iniciar.
+// Tipos da configuração do totem, editada no modo Administrador (/admin) e lida pelo
+// totem ao iniciar. Mudanças do Administrador ficam pendentes e só entram em vigor quando
+// o servidor é reiniciado.
 // Consumido por: apps/api/src/modules/admin, apps/totem (ConfigContext, telas e Admin).
 
-export type PaginaTotem = 'cardapio' | 'carrinho' | 'identificacao' | 'pagamento' | 'comprovante';
+import type { FormaPagamento } from './Pagamento';
+
+// Telas do fluxo do cliente cujo título e descrição o administrador escolhe.
+export type PaginaTotem =
+  'inicio' | 'fidelidade' | 'cardapio' | 'carrinho' | 'pagamento' | 'comprovante';
 
 export interface TextoPagina {
   titulo: string;
   descricao: string;
+}
+
+// Tela inicial: imagens que passam enquanto ninguém usa o totem.
+export interface Publicidade {
+  imagens: string[]; // caminhos servidos pela API (/imagens/...), na ordem de exibição
+  segundosPorImagem: number;
 }
 
 export interface AparenciaTotem {
@@ -22,13 +33,19 @@ export interface AparenciaTotem {
   corFundo: string;
   corBarra: string;
   paginas: Record<PaginaTotem, TextoPagina>;
+  publicidade: Publicidade;
 }
 
 export interface CategoriaCardapio {
   id: string;
   nome: string;
-  icone?: string; // emoji usado na aba e nos itens sem foto/ícone próprio
+  icone?: string; // emoji da aba e dos itens sem foto/ícone próprio
+  iconeImagemUrl?: string; // imagem pequena no lugar do emoji, na aba
+  capaUrl?: string; // foto de capa, exibida acima dos itens quando a categoria está aberta
 }
+
+// Onde ficam as abas de categoria na tela do cardápio.
+export type PosicaoCategorias = 'topo' | 'esquerda' | 'direita';
 
 export interface ConfigFidelidade {
   habilitado: boolean;
@@ -39,18 +56,26 @@ export interface ConfigFidelidade {
   combinaComCupom: boolean;
 }
 
-// Dinheiro não entra aqui: é sempre aceito.
-export interface FormasPagamentoOpcionais {
-  credito: boolean;
-  debito: boolean;
-  pix: boolean;
+// Cada forma pode ser ligada ou desligada; pelo menos uma precisa ficar ligada.
+export type FormasPagamentoHabilitadas = Record<FormaPagamento, boolean>;
+
+// "Para comer aqui" e "Para levar". Desligar uma serve para lojas só de drive ou que
+// não têm embalagem para viagem; pelo menos uma fica ligada.
+export interface OpcoesConsumo {
+  local: boolean;
+  viagem: boolean;
 }
 
 export interface ConfigTotem {
   aparencia: AparenciaTotem;
   categorias: CategoriaCardapio[]; // na ordem em que aparecem no totem
+  posicaoCategorias: PosicaoCategorias;
   exibirTodos: boolean; // aba "Todos", com os itens de todas as categorias
   fidelidade: ConfigFidelidade;
-  formasPagamento: FormasPagamentoOpcionais;
+  formasPagamento: FormasPagamentoHabilitadas;
+  consumo: OpcoesConsumo;
   cuponsHabilitados: boolean;
+  // Endereço público dos Termos e Condições, aberto pelo QR Code do totem. Vazio = a
+  // página de termos servida pela própria API.
+  urlTermos?: string;
 }

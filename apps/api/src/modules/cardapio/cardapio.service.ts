@@ -1,5 +1,5 @@
 import type { ItemCardapio } from '@totem/shared';
-import { config, itemDisponivel, itensCardapio } from '../../db/memory-store';
+import { config, estoqueEfetivo, itemDisponivel, itensCardapio } from '../../db/memory-store';
 import type { ListarCardapioQuery } from './cardapio.types';
 
 // Normaliza para comparação: minúsculas e sem acentos ("Refrigerante" casa com "refri").
@@ -15,7 +15,8 @@ function normalizar(texto: string): string {
 // US-02: Buscar item pelo nome — filtro opcional por trecho do nome (`busca`).
 // Itens indisponíveis também são retornados (com disponivel: false) para o totem
 // exibi-los como esgotados; o bloqueio da adição fica no carrinho. `disponivel` já
-// considera o estoque: item sem unidades sai como indisponível.
+// considera o estoque e, nos combos, os itens que os compõem; `estoque` de um combo é
+// quantos combos esses itens ainda permitem montar.
 // A lista segue a ordem das categorias definida pelo administrador (aba "Todos").
 export async function listarCardapio(query: ListarCardapioQuery): Promise<ItemCardapio[]> {
   const busca = query.busca ? normalizar(query.busca) : '';
@@ -30,6 +31,6 @@ export async function listarCardapio(query: ListarCardapioQuery): Promise<ItemCa
         (!query.categoria || item.categoria === query.categoria) &&
         (!busca || normalizar(item.nome).includes(busca)),
     )
-    .map((item) => ({ ...item, disponivel: itemDisponivel(item) }))
+    .map((item) => ({ ...item, estoque: estoqueEfetivo(item), disponivel: itemDisponivel(item) }))
     .sort((a, b) => posicao(a) - posicao(b));
 }

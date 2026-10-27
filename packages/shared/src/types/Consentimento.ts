@@ -1,16 +1,23 @@
 // Tipos do consentimento LGPD (US 29): o termo exibido ao cliente antes de qualquer dado
 // pessoal ser guardado e o registro de auditoria de cada decisão.
-// Consumido por: apps/api/src/modules/consentimento, apps/totem (Identificação,
+// Consumido por: apps/api/src/modules/consentimento, apps/totem (Fidelidade, Pagamento,
 // Comprovante e aba Privacidade do administrador).
 
 // Cada finalidade é consentida (ou recusada) separadamente.
 export type FinalidadeConsentimento = 'cpf_nota' | 'fidelidade' | 'comprovante';
+
+export interface SecaoTermo {
+  titulo: string;
+  paragrafos: string[];
+}
 
 export interface TermoConsentimento {
   versao: string;
   aviso: string; // texto geral, exibido acima das caixas de seleção
   // Texto da caixa de seleção de cada finalidade ("Concordo em ...").
   finalidades: Record<FinalidadeConsentimento, string>;
+  // Termos e Condições completos, abertos pelo link e pelo QR Code (US 29 / item 4).
+  secoes: SecaoTermo[];
 }
 
 // Uma linha da trilha de auditoria: qual decisão, sobre qual finalidade, em que data e

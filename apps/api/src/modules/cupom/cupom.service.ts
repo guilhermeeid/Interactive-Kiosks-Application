@@ -4,6 +4,7 @@ import {
   config,
   cupons,
   exigirPedidoEmMontagem,
+  motivoCupomNaoServe,
   obterOuCriarPedido,
   recalcularPedido,
 } from '../../db/memory-store';
@@ -19,12 +20,38 @@ function formatarDataHora(iso: string): string {
   });
 }
 
+// US 36: um cupom precisa dar algum desconto. Zero, negativo, mais de 100% ou fração de
+// centavo não fazem sentido. A área restrita recusa esses valores ao salvar e o totem
+// recusa um cupom assim que já esteja gravado (ex.: inserido direto nos dados).
+export function problemaNoDesconto(tipoDesconto: unknown, valor: unknown): string | null {
+  if (tipoDesconto !== 'percentual' && tipoDesconto !== 'valor_fixo') {
+    return 'Escolha o tipo de desconto do cupom';
+  }
+  if (typeof valor !== 'number' || !Number.isFinite(valor)) {
+    return 'Informe o desconto do cupom';
+  }
+  if (valor <= 0) {
+    return 'O desconto do cupom precisa ser maior que zero';
+  }
+  if (tipoDesconto === 'percentual') {
+    if (valor > 100) return 'O desconto em percentual vai até 100%';
+    if (valor < 0.01) return 'O desconto em percentual precisa ser de pelo menos 0,01%';
+  } else {
+    if (!Number.isInteger(valor)) return 'O desconto em reais precisa ser em centavos inteiros';
+    if (valor > 10_000_000) return 'O desconto em reais vai até R$ 100.000,00';
+  }
+  return null;
+}
+
 // US 24: Regras que decidem se um cupom é aceito agora, lidas dos atributos que o
 // administrador cadastrou: precisa estar ativo, dentro da vigência (`validoDe` e
 // `validoAte` são inclusivos e opcionais — sem data = sem limite naquele lado) e ainda
 // ter usos disponíveis. É a única fonte dessas regras: o totem (ao aplicar e ao pagar) e
 // a lista do administrador (US 13) usam esta mesma função.
 export function situacaoCupom(cupom: Cupom, agora: Date = new Date()): SituacaoCupom {
+  if (problemaNoDesconto(cupom.tipoDesconto, cupom.valor)) {
+    return 'sem_desconto';
+  }
   if (!cupom.ativo) {
     return 'inativo';
   }
@@ -42,6 +69,7 @@ export function situacaoCupom(cupom: Cupom, agora: Date = new Date()): SituacaoC
 
 function recusarCupom(cupom: Cupom, situacao: Exclude<SituacaoCupom, 'valido'>): never {
   const motivos: Record<typeof situacao, () => string> = {
+    sem_desconto: () => 'não tem um desconto válido',
     inativo: () => 'inválido ou inativo',
     nao_vigente: () =>
       `ainda não está válido (a partir de ${formatarDataHora(cupom.validoDe as string)})`,
@@ -93,14 +121,25 @@ export async function aplicarCupom(
   if (!cupom) {
     throw new HttpError(400, `Cupom "${codigo}" inválido ou inativo`);
   }
-  validarCupom(cupom, agora);
+  validarCupomNoPedido(cupom, pedido, agora);
   if (pedido.pontosUsados && !config.fidelidade.combinaComCupom) {
     throw new HttpError(400, 'Pontos e cupom não podem ser usados no mesmo pedido');
   }
 
   pedido.cupomAplicado = cupom.codigo;
+  pedido.avisoCupom = undefined;
   recalcularPedido(pedido);
   return calcularResultadoCupom(pedido, cupom);
+}
+
+// Vigência, usos e as regras que dependem do carrinho: pedido mínimo e, no cupom
+// atrelado a itens ou categorias, ter pelo menos um deles no pedido.
+export function validarCupomNoPedido(cupom: Cupom, pedido: Pedido, agora: Date = new Date()): void {
+  validarCupom(cupom, agora);
+  const motivo = motivoCupomNaoServe(pedido, cupom);
+  if (motivo) {
+    throw new HttpError(400, motivo.charAt(0).toUpperCase() + motivo.slice(1));
+  }
 }
 
 // US 14: Remover cupom — o pedido volta ao valor integral, sem desconto de cupom.
@@ -108,6 +147,7 @@ export async function removerCupom(pedidoId: string): Promise<Pedido> {
   const pedido = obterOuCriarPedido(pedidoId);
   exigirPedidoEmMontagem(pedido);
   pedido.cupomAplicado = undefined;
+  pedido.avisoCupom = undefined;
   recalcularPedido(pedido);
   return pedido;
 }

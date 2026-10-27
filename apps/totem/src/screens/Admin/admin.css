@@ -2,7 +2,7 @@
    mas com formulários comuns: aqui se usa teclado e mouse, não só toque. */
 
 .admin {
-  max-width: 960px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 1.5rem 1.5rem 4rem;
   color: var(--cor-cafe);
@@ -196,6 +196,17 @@
   min-width: 0;
 }
 
+/* O input global do totem cresce (flex: 1); aqui ele mantém a altura de um campo */
+.admin-campo > input,
+.admin-campo > select {
+  flex: none;
+}
+
+/* Campo solto num formulário ocupa a largura toda (ex.: Descrição) */
+.admin-form > .admin-campo {
+  align-self: stretch;
+}
+
 .admin-campo__rotulo {
   font-weight: 700;
   font-size: 0.95rem;
@@ -237,11 +248,43 @@
 }
 
 .admin-linha--categoria {
-  grid-template-columns: 5rem 1fr auto;
+  grid-template-columns: auto 1fr auto;
 }
 
-.admin-linha--produto {
-  grid-template-columns: auto 1fr auto auto;
+/* Ícone e capa ocupam a linha inteira, abaixo do nome */
+.admin-categoria-imagens {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.admin-capa {
+  width: 9rem;
+  aspect-ratio: 27 / 10;
+  object-fit: cover;
+  border-radius: 0.6rem;
+}
+
+.admin-linha--produto,
+.admin-linha--ao-vivo {
+  grid-template-columns: auto 1fr auto;
+}
+
+/* Formulário que abre dentro de uma linha da lista */
+.admin-linha__inteira {
+  grid-column: 1 / -1;
+}
+
+/* Produto ou cupom que sai no reinício */
+.admin-linha--sai {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.admin-aviso {
+  color: var(--cor-perigo) !important;
+  font-weight: 700;
 }
 
 .admin-linha--finalidade {
@@ -396,4 +439,167 @@
 
 .admin-previa__fundo .tela__titulo {
   font-family: var(--fonte-titulo);
+}
+
+/* ---------- Modos e pendências (item 7) ---------- */
+
+.admin__modos {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.3rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 999px;
+  background: var(--cor-papel);
+}
+
+.admin__modos button {
+  box-shadow: none;
+}
+
+/* Faixa com o que o Administrador salvou e ainda não está em vigor */
+.admin-pendencias {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  border: 2px dashed var(--cor-mostarda-escura);
+  border-radius: var(--raio);
+  background: var(--cor-mostarda-clara);
+}
+
+.admin-pendencias p {
+  margin: 0;
+}
+
+.selo-pendente {
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--cor-mostarda-clara);
+  color: var(--cor-cafe);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-tabela .selo-pendente {
+  display: block;
+  width: max-content;
+}
+
+.selo-pendente--novo {
+  background: #dff2e4;
+  color: #1f6a41;
+}
+
+.selo-pendente--removido {
+  background: var(--cor-perigo-clara);
+  color: var(--cor-perigo);
+}
+
+/* ---------- Escolhas, combos, publicidade ---------- */
+
+.admin-escolha {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 1rem;
+}
+
+.admin input[type='radio'] {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--cor-ketchup);
+}
+
+/* Lista de caixas (itens ou categorias de um cupom) */
+.admin-marcar {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.6rem;
+}
+
+.admin-combo {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 1rem;
+  background: var(--cor-papel);
+}
+
+.admin-combo__linha {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: 1fr 5rem auto;
+  gap: 0.6rem;
+}
+
+.admin-combo__linha input {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.7rem;
+  font-size: 1rem;
+}
+
+.admin-publicidade {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 1rem;
+}
+
+.admin-anuncio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.admin-anuncio img {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border: 2px solid var(--cor-borda);
+  border-radius: 0.8rem;
+}
+
+.admin-anuncio button {
+  min-height: 2.25rem;
+  padding: 0.2rem 0.7rem;
+}
+
+.admin-tabela .admin-tabela__quebra {
+  min-width: 12rem;
+  white-space: normal;
+}
+
+.admin input[type='number'] {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.7rem;
+  border: 2px solid var(--cor-borda);
+  font-size: 1rem;
+}
+
+.admin .codigo-qr {
+  width: 15rem;
+  height: 15rem;
+  margin: 0 auto;
+  display: block;
 }

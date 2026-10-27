@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -29,6 +30,7 @@ const DIRETORIO = process.env.DATA_DIR
   : resolve(dirname(fileURLToPath(import.meta.url)), '../../data');
 const ARQUIVO_ESTADO = join(DIRETORIO, 'estado.json');
 const ARQUIVO_AUDITORIA = join(DIRETORIO, 'auditoria-consentimento.jsonl');
+const ARQUIVO_RASCUNHO = join(DIRETORIO, 'rascunho.json');
 const DIRETORIO_IMAGENS = join(DIRETORIO, 'imagens');
 
 // Os testes rodam só em memória, para não ler nem sobrescrever os dados reais.
@@ -59,6 +61,46 @@ export function salvarEstado(estado: EstadoSalvo): void {
   const temporario = `${ARQUIVO_ESTADO}.tmp`;
   writeFileSync(temporario, JSON.stringify(estado, null, 2));
   renameSync(temporario, ARQUIVO_ESTADO);
+}
+
+// ---------- Mudanças pendentes do Administrador ----------
+
+// Alterações de uma lista (produtos ou cupons) que só entram em vigor quando o servidor
+// reinicia. `alterados` guarda só os campos que o administrador mudou (null = campo
+// removido), para não desfazer, no reinício, o que o funcionário mudou nesse meio-tempo
+// nos outros campos.
+export interface PendenciasLista<T> {
+  novos: T[];
+  alterados: Record<string, Record<string, unknown>>;
+  removidos: string[];
+}
+
+export interface RascunhoSalvo {
+  config?: ConfigTotem;
+  produtos: PendenciasLista<ItemCardapio>;
+  cupons: PendenciasLista<Cupom>;
+}
+
+export function carregarRascunho(): RascunhoSalvo | null {
+  if (!ATIVA || !existsSync(ARQUIVO_RASCUNHO)) {
+    return null;
+  }
+  return JSON.parse(readFileSync(ARQUIVO_RASCUNHO, 'utf8'));
+}
+
+// `null` apaga o arquivo: não há mais nada pendente.
+export function salvarRascunho(rascunho: RascunhoSalvo | null): void {
+  if (!ATIVA) {
+    return;
+  }
+  if (!rascunho) {
+    rmSync(ARQUIVO_RASCUNHO, { force: true });
+    return;
+  }
+  mkdirSync(DIRETORIO, { recursive: true });
+  const temporario = `${ARQUIVO_RASCUNHO}.tmp`;
+  writeFileSync(temporario, JSON.stringify(rascunho, null, 2));
+  renameSync(temporario, ARQUIVO_RASCUNHO);
 }
 
 // ---------- Auditoria do consentimento (US 29) ----------

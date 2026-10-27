@@ -2,108 +2,132 @@ import { randomUUID } from 'node:crypto';
 import type {
   CategoriaCardapio,
   ClienteFidelidade,
+  ComPendencia,
+  ComponenteCombo,
   ConfigTotem,
   Cupom,
   CupomComSituacao,
+  FormaPagamento,
   ItemCardapio,
   PaginaTotem,
-  PedidoAguardandoRetirada,
+  PosicaoCategorias,
   RegistroConsentimento,
+  RestricaoCupom,
+  ResumoPendencias,
   TextoPagina,
 } from '@totem/shared';
 import {
   clientesFidelidade,
   config,
   cupons,
+  descartarRascunho,
+  diferencas,
   itensCardapio,
-  pedidoAguardaRetirada,
-  pedidos,
+  listaComPendencias,
   persistir,
+  persistirRascunho,
+  rascunho,
   registrosConsentimento,
 } from '../../db/memory-store';
-import { CAMINHO_IMAGEM, salvarImagem } from '../../db/persistencia';
+import { salvarImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
-import { situacaoCupom } from '../cupom/cupom.service';
+import { problemaNoDesconto, situacaoCupom } from '../cupom/cupom.service';
 import { cpfValido, limparCpf } from '../identificacao/cpf';
 import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
+import {
+  booleano,
+  centavosOpcional,
+  cor,
+  dataOpcional,
+  imagemOpcional,
+  inteiro,
+  inteiroOpcional,
+  numero,
+  texto,
+  textoOpcional,
+  urlOpcional,
+} from './validacao';
 
-// Regras da tela de administrador do totem. Tudo o que entra aqui vem de um formulário
-// e é validado campo a campo antes de alterar o estado; cada alteração é gravada em
-// disco. O totem só passa a enxergar as mudanças de configuração quando é reiniciado.
+// Regras do modo Administrador. Tudo o que entra aqui vem de um formulário e é validado
+// campo a campo. Item 7: o que o Administrador salva — configuração, produtos e cupons —
+// fica pendente e só entra em vigor quando o servidor é reiniciado (ver
+// db/memory-store.ts, `aplicarRascunho`). Por isso as listas daqui mostram como tudo vai
+// ficar depois do reinício, com a marca do que ainda está pendente. Clientes de
+// fidelidade são dados, não configuração, e mudam na hora.
 
-// ---------- Validação de campos ----------
+const PAGINAS: PaginaTotem[] = [
+  'inicio',
+  'fidelidade',
+  'cardapio',
+  'carrinho',
+  'pagamento',
+  'comprovante',
+];
+const FORMAS: FormaPagamento[] = [
+  'credito',
+  'debito',
+  'pix',
+  'vale_refeicao',
+  'vale_alimentacao',
+  'dinheiro',
+];
+const NOMES_FORMAS: Record<FormaPagamento, string> = {
+  credito: 'Crédito',
+  debito: 'Débito',
+  pix: 'Pix',
+  vale_refeicao: 'Vale-refeição',
+  vale_alimentacao: 'Vale-alimentação',
+  dinheiro: 'Dinheiro',
+};
+const POSICOES: PosicaoCategorias[] = ['topo', 'esquerda', 'direita'];
 
-const COR_HEX = /^#[0-9a-f]{6}$/i;
-const PAGINAS: PaginaTotem[] = ['cardapio', 'carrinho', 'identificacao', 'pagamento', 'comprovante'];
+// ---------- Como tudo fica depois do reinício ----------
 
-function texto(valor: unknown, campo: string, maximo: number, obrigatorio = true): string {
-  const limpo = typeof valor === 'string' ? valor.trim() : '';
-  if (obrigatorio && !limpo) {
-    throw new HttpError(400, `Preencha o campo "${campo}"`);
-  }
-  if (limpo.length > maximo) {
-    throw new HttpError(400, `"${campo}" aceita no máximo ${maximo} caracteres`);
-  }
-  return limpo;
+function configPosReinicio(): ConfigTotem {
+  return rascunho.config ?? config;
 }
 
-function textoOpcional(valor: unknown, campo: string, maximo: number): string | undefined {
-  return texto(valor, campo, maximo, false) || undefined;
+function produtosPosReinicio(): ComPendencia<ItemCardapio>[] {
+  return listaComPendencias(itensCardapio, (item) => item.id, rascunho.produtos);
 }
 
-function cor(valor: unknown, campo: string): string {
-  if (typeof valor !== 'string' || !COR_HEX.test(valor)) {
-    throw new HttpError(400, `"${campo}" deve ser uma cor em hex, como #d62828`);
-  }
-  return valor.toLowerCase();
+// Produtos que continuam existindo depois do reinício.
+function produtosQueFicam(): ItemCardapio[] {
+  return produtosPosReinicio().filter((produto) => produto.pendente !== 'removido');
 }
 
-function booleano(valor: unknown, campo: string): boolean {
-  if (typeof valor !== 'boolean') {
-    throw new HttpError(400, `Valor inválido em "${campo}"`);
-  }
-  return valor;
+function cuponsPosReinicio(): ComPendencia<Cupom>[] {
+  return listaComPendencias([...cupons.values()], (cupom) => cupom.codigo, rascunho.cupons);
 }
 
-function numero(valor: unknown, campo: string, minimo: number, maximo: number): number {
-  if (typeof valor !== 'number' || !Number.isFinite(valor) || valor < minimo || valor > maximo) {
-    throw new HttpError(400, `"${campo}" deve ficar entre ${minimo} e ${maximo}`);
-  }
-  return valor;
+function cuponsQueFicam(): Cupom[] {
+  return cuponsPosReinicio().filter((cupom) => cupom.pendente !== 'removido');
 }
 
-function inteiro(valor: unknown, campo: string, minimo: number, maximo: number): number {
-  if (!Number.isInteger(valor)) {
-    throw new HttpError(400, `"${campo}" deve ser um número inteiro`);
-  }
-  return numero(valor, campo, minimo, maximo);
+export async function obterPendencias(): Promise<ResumoPendencias> {
+  const contar = (lista: typeof rascunho.produtos | typeof rascunho.cupons) =>
+    lista.novos.length + lista.removidos.length + Object.keys(lista.alterados).length;
+  return {
+    config: rascunho.config !== undefined,
+    produtos: contar(rascunho.produtos),
+    cupons: contar(rascunho.cupons),
+  };
 }
 
-function imagemOpcional(valor: unknown, campo: string): string | undefined {
-  if (valor === null || valor === undefined || valor === '') {
-    return undefined;
-  }
-  if (typeof valor !== 'string' || !CAMINHO_IMAGEM.test(valor)) {
-    throw new HttpError(400, `Imagem inválida em "${campo}"`);
-  }
-  return valor;
-}
-
-function dataOpcional(valor: unknown, campo: string): string | undefined {
-  if (valor === null || valor === undefined || valor === '') {
-    return undefined;
-  }
-  const data = typeof valor === 'string' ? new Date(valor) : new Date(NaN);
-  if (Number.isNaN(data.getTime())) {
-    throw new HttpError(400, `Data inválida em "${campo}"`);
-  }
-  return data.toISOString();
+export async function descartarPendencias(): Promise<void> {
+  descartarRascunho();
 }
 
 // ---------- Configuração (aparência, categorias, fidelidade, pagamento, cupons) ----------
 
+// A configuração em vigor, lida pelo totem ao iniciar.
 export async function obterConfig(): Promise<ConfigTotem> {
   return config;
+}
+
+// O que o Administrador vê e edita: a configuração pendente, se houver.
+export async function obterConfigAdmin(): Promise<ConfigTotem> {
+  return configPosReinicio();
 }
 
 function validarCategorias(entrada: unknown): CategoriaCardapio[] {
@@ -114,13 +138,16 @@ function validarCategorias(entrada: unknown): CategoriaCardapio[] {
     throw new HttpError(400, 'O cardápio aceita no máximo 20 categorias');
   }
 
+  const atuais = configPosReinicio().categorias;
   const categorias = entrada.map((categoria: Partial<CategoriaCardapio>): CategoriaCardapio => ({
     // Só ids que já existem são mantidos; categoria nova recebe um id gerado aqui.
-    id: config.categorias.some((atual) => atual.id === categoria?.id)
+    id: atuais.some((atual) => atual.id === categoria?.id)
       ? (categoria.id as string)
       : randomUUID(),
     nome: texto(categoria?.nome, 'Nome da categoria', 30),
     icone: textoOpcional(categoria?.icone, 'Ícone da categoria', 8),
+    iconeImagemUrl: imagemOpcional(categoria?.iconeImagemUrl, 'Ícone da categoria'),
+    capaUrl: imagemOpcional(categoria?.capaUrl, 'Capa da categoria'),
   }));
 
   const nomes = categorias.map((categoria) => categoria.nome.toLowerCase());
@@ -131,14 +158,23 @@ function validarCategorias(entrada: unknown): CategoriaCardapio[] {
     throw new HttpError(400, 'A mesma categoria foi enviada duas vezes');
   }
 
-  // Categoria com produtos não some: os produtos ficariam sem aba no totem.
-  for (const atual of config.categorias) {
-    const produtos = itensCardapio.filter((item) => item.categoria === atual.id).length;
-    if (produtos > 0 && !categorias.some((categoria) => categoria.id === atual.id)) {
+  // Categoria com produtos (ou presa a um cupom) não some: os produtos ficariam sem aba.
+  for (const atual of atuais) {
+    if (categorias.some((categoria) => categoria.id === atual.id)) {
+      continue;
+    }
+    const produtos = produtosQueFicam().filter((item) => item.categoria === atual.id).length;
+    if (produtos > 0) {
       throw new HttpError(
         400,
         `A categoria "${atual.nome}" ainda tem ${produtos} produto(s). Mova ou remova-os antes.`,
       );
+    }
+    const cupom = cuponsQueFicam().find(
+      (c) => c.aplicaEm?.tipo === 'categorias' && c.aplicaEm.ids.includes(atual.id),
+    );
+    if (cupom) {
+      throw new HttpError(400, `A categoria "${atual.nome}" está no cupom ${cupom.codigo}.`);
     }
   }
   return categorias;
@@ -148,6 +184,7 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
   const aparencia = entrada?.aparencia;
   const fidelidade = entrada?.fidelidade;
   const formas = entrada?.formasPagamento;
+  const consumo = entrada?.consumo;
 
   const logoImagemUrl = imagemOpcional(aparencia?.logoImagemUrl, 'Logotipo');
   const paginas = {} as Record<PaginaTotem, TextoPagina>;
@@ -156,6 +193,32 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
       titulo: texto(aparencia?.paginas?.[pagina]?.titulo, 'Nome da página', 40),
       descricao: texto(aparencia?.paginas?.[pagina]?.descricao, 'Descrição da página', 120, false),
     };
+  }
+
+  const imagensPublicidade = aparencia?.publicidade?.imagens;
+  if (!Array.isArray(imagensPublicidade) || imagensPublicidade.length > 10) {
+    throw new HttpError(400, 'A publicidade aceita até 10 imagens');
+  }
+
+  const formasPagamento = {} as Record<FormaPagamento, boolean>;
+  for (const forma of FORMAS) {
+    formasPagamento[forma] = booleano(formas?.[forma], NOMES_FORMAS[forma]);
+  }
+  if (!FORMAS.some((forma) => formasPagamento[forma])) {
+    throw new HttpError(400, 'Deixe pelo menos uma forma de pagamento ligada');
+  }
+
+  const opcoesConsumo = {
+    local: booleano(consumo?.local, 'Para comer aqui'),
+    viagem: booleano(consumo?.viagem, 'Para levar'),
+  };
+  if (!opcoesConsumo.local && !opcoesConsumo.viagem) {
+    throw new HttpError(400, 'Deixe ligada pelo menos "Para comer aqui" ou "Para levar"');
+  }
+
+  const posicaoCategorias = entrada?.posicaoCategorias;
+  if (!posicaoCategorias || !POSICOES.includes(posicaoCategorias)) {
+    throw new HttpError(400, 'Escolha onde ficam as categorias: topo, esquerda ou direita');
   }
 
   return {
@@ -171,8 +234,18 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
       corFundo: cor(aparencia?.corFundo, 'Cor do fundo'),
       corBarra: cor(aparencia?.corBarra, 'Cor da barra'),
       paginas,
+      publicidade: {
+        imagens: imagensPublicidade.map((imagem) => imagemOpcional(imagem, 'Publicidade') as string),
+        segundosPorImagem: inteiro(
+          aparencia?.publicidade?.segundosPorImagem,
+          'Segundos por imagem',
+          3,
+          60,
+        ),
+      },
     },
     categorias: validarCategorias(entrada?.categorias),
+    posicaoCategorias,
     exibirTodos: booleano(entrada?.exibirTodos, 'Exibir "Todos"'),
     fidelidade: {
       habilitado: booleano(fidelidade?.habilitado, 'Programa de fidelidade'),
@@ -181,31 +254,76 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
       pontosPorReal: inteiro(fidelidade?.pontosPorReal, 'Pontos por R$ 1,00', 1, 100000),
       combinaComCupom: booleano(fidelidade?.combinaComCupom, 'Somar pontos com cupom'),
     },
-    formasPagamento: {
-      credito: booleano(formas?.credito, 'Crédito'),
-      debito: booleano(formas?.debito, 'Débito'),
-      pix: booleano(formas?.pix, 'Pix'),
-    },
+    formasPagamento,
+    consumo: opcoesConsumo,
     cuponsHabilitados: booleano(entrada?.cuponsHabilitados, 'Aceitar cupons'),
+    urlTermos: urlOpcional(entrada?.urlTermos, 'Endereço dos Termos e Condições'),
   };
 }
 
+// Fica pendente até o servidor reiniciar.
 export async function atualizarConfig(entrada: Partial<ConfigTotem>): Promise<ConfigTotem> {
-  Object.assign(config, validarConfig(entrada));
-  persistir();
-  return config;
+  rascunho.config = validarConfig(entrada);
+  persistirRascunho();
+  return rascunho.config;
 }
 
 export async function enviarImagem(body: EnviarImagemBody): Promise<{ url: string }> {
   return { url: salvarImagem(body?.dataUrl) };
 }
 
-// ---------- Produtos ----------
+// ---------- Produtos e combos ----------
 
-function validarProduto(body: ProdutoBody): Omit<ItemCardapio, 'id'> {
-  const categoria = config.categorias.find((c) => c.id === body?.categoria);
+// Item 13: um combo agrupa itens já cadastrados (que não sejam combos), com quantidade
+// de cada um. Não tem estoque próprio: esgota quando qualquer item dele esgota.
+function validarComponentes(entrada: unknown, idProprio?: string): ComponenteCombo[] | undefined {
+  if (entrada === null || entrada === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(entrada) || entrada.length === 0) {
+    throw new HttpError(400, 'Escolha os itens do combo');
+  }
+  if (entrada.length > 10) {
+    throw new HttpError(400, 'Um combo aceita no máximo 10 itens diferentes');
+  }
+  const disponiveis = produtosQueFicam();
+  const componentes = entrada.map((parte: Partial<ComponenteCombo>): ComponenteCombo => {
+    const item = disponiveis.find((produto) => produto.id === parte?.itemCardapioId);
+    if (!item || item.id === idProprio) {
+      throw new HttpError(400, 'Item do combo não encontrado');
+    }
+    if (item.componentes) {
+      throw new HttpError(400, `"${item.nome}" é um combo e não pode entrar em outro combo`);
+    }
+    return { itemCardapioId: item.id, quantidade: inteiro(parte.quantidade, `Quantidade de ${item.nome}`, 1, 20) };
+  });
+  if (new Set(componentes.map((parte) => parte.itemCardapioId)).size !== componentes.length) {
+    throw new HttpError(400, 'O mesmo item aparece duas vezes no combo');
+  }
+  if (componentes.reduce((total, parte) => total + parte.quantidade, 0) < 2) {
+    throw new HttpError(400, 'Um combo precisa juntar pelo menos 2 unidades');
+  }
+  return componentes;
+}
+
+// Combos (que ficam depois do reinício) que levam este item.
+function combosCom(id: string): ItemCardapio[] {
+  return produtosQueFicam().filter((produto) =>
+    produto.componentes?.some((parte) => parte.itemCardapioId === id),
+  );
+}
+
+function validarProduto(body: ProdutoBody, idProprio?: string): Omit<ItemCardapio, 'id'> {
+  const categoria = configPosReinicio().categorias.find((c) => c.id === body?.categoria);
   if (!categoria) {
     throw new HttpError(400, 'Escolha uma categoria para o produto');
+  }
+  const componentes = validarComponentes(body.componentes, idProprio);
+  if (componentes && idProprio) {
+    const combo = combosCom(idProprio)[0];
+    if (combo) {
+      throw new HttpError(400, `Este item faz parte do combo "${combo.nome}" e não pode virar combo`);
+    }
   }
   return {
     nome: texto(body.nome, 'Nome', 60),
@@ -214,45 +332,88 @@ function validarProduto(body: ProdutoBody): Omit<ItemCardapio, 'id'> {
     precoCentavos: inteiro(body.precoCentavos, 'Preço', 0, 10_000_000),
     icone: textoOpcional(body.icone, 'Ícone', 8),
     imagemUrl: imagemOpcional(body.imagemUrl, 'Foto'),
-    estoque:
-      body.estoque === null || body.estoque === undefined
-        ? undefined
-        : inteiro(body.estoque, 'Quantidade', 0, 99_999),
+    // O estoque de um combo vem dos itens que o compõem.
+    estoque: componentes ? undefined : inteiroOpcional(body.estoque, 'Quantidade', 0, 99_999),
     disponivel: booleano(body.disponivel, 'Disponível'),
+    componentes,
   };
 }
 
-// Devolve os itens como estão cadastrados (o cardápio do totem já mistura estoque e
-// disponibilidade num campo só).
-export async function listarProdutos(): Promise<ItemCardapio[]> {
-  return itensCardapio;
+// Sem campos `undefined`, para comparar e gravar só o que tem valor.
+function compactar<T extends object>(registro: T): T {
+  return Object.fromEntries(
+    Object.entries(registro).filter(([, valor]) => valor !== undefined),
+  ) as T;
 }
 
-export async function criarProduto(body: ProdutoBody): Promise<ItemCardapio> {
-  const produto: ItemCardapio = { id: randomUUID(), ...validarProduto(body) };
-  itensCardapio.push(produto);
-  persistir();
-  return produto;
+// Como os produtos vão ficar depois do reinício, com a marca do que está pendente.
+export async function listarProdutos(): Promise<ComPendencia<ItemCardapio>[]> {
+  return produtosPosReinicio();
 }
 
-export async function atualizarProduto(id: string, body: ProdutoBody): Promise<ItemCardapio> {
-  const indice = itensCardapio.findIndex((item) => item.id === id);
-  if (indice === -1) {
+export async function criarProduto(body: ProdutoBody): Promise<ComPendencia<ItemCardapio>> {
+  const produto = compactar<ItemCardapio>({ id: randomUUID(), ...validarProduto(body) });
+  rascunho.produtos.novos.push(produto);
+  persistirRascunho();
+  return { ...produto, pendente: 'novo' };
+}
+
+export async function atualizarProduto(
+  id: string,
+  body: ProdutoBody,
+): Promise<ComPendencia<ItemCardapio>> {
+  if (rascunho.produtos.removidos.includes(id)) {
+    throw new HttpError(409, 'Este produto será removido no reinício. Descarte as pendências para editá-lo.');
+  }
+  const produto = compactar<ItemCardapio>({ id, ...validarProduto(body, id) });
+
+  const indiceNovo = rascunho.produtos.novos.findIndex((novo) => novo.id === id);
+  if (indiceNovo !== -1) {
+    rascunho.produtos.novos[indiceNovo] = produto;
+    persistirRascunho();
+    return { ...produto, pendente: 'novo' };
+  }
+
+  const atual = itensCardapio.find((item) => item.id === id);
+  if (!atual) {
     throw new HttpError(404, 'Produto não encontrado');
   }
-  const produto: ItemCardapio = { id, ...validarProduto(body) };
-  itensCardapio[indice] = produto;
-  persistir();
-  return produto;
+  // Só os campos que o administrador mudou ficam pendentes; o resto segue o que está em
+  // vigor (inclusive o que o funcionário mudar até o reinício).
+  const mudancas = diferencas(atual, produto);
+  if (Object.keys(mudancas).length === 0) {
+    delete rascunho.produtos.alterados[id];
+  } else {
+    rascunho.produtos.alterados[id] = mudancas;
+  }
+  persistirRascunho();
+  return produtosPosReinicio().find((item) => item.id === id) as ComPendencia<ItemCardapio>;
 }
 
 export async function removerProduto(id: string): Promise<void> {
-  const indice = itensCardapio.findIndex((item) => item.id === id);
-  if (indice === -1) {
+  const combo = combosCom(id).find((produto) => produto.id !== id);
+  if (combo) {
+    throw new HttpError(409, `Este item faz parte do combo "${combo.nome}". Tire-o do combo antes.`);
+  }
+  const cupom = cuponsQueFicam().find(
+    (c) => c.aplicaEm?.tipo === 'itens' && c.aplicaEm.ids.includes(id),
+  );
+  if (cupom) {
+    throw new HttpError(409, `Este item está no cupom ${cupom.codigo}. Tire-o do cupom antes.`);
+  }
+
+  const indiceNovo = rascunho.produtos.novos.findIndex((novo) => novo.id === id);
+  if (indiceNovo !== -1) {
+    rascunho.produtos.novos.splice(indiceNovo, 1);
+  } else if (itensCardapio.some((item) => item.id === id)) {
+    if (!rascunho.produtos.removidos.includes(id)) {
+      rascunho.produtos.removidos.push(id);
+    }
+    delete rascunho.produtos.alterados[id];
+  } else {
     throw new HttpError(404, 'Produto não encontrado');
   }
-  itensCardapio.splice(indice, 1);
-  persistir();
+  persistirRascunho();
 }
 
 // ---------- Cupons ----------
@@ -260,13 +421,38 @@ export async function removerProduto(id: string): Promise<void> {
 // Letras e números apenas: é o que o teclado virtual do totem consegue digitar.
 const CODIGO_CUPOM = /^[A-Z0-9]{3,20}$/;
 
-function validarCupomBody(body: CupomBody, usos: number | undefined): Cupom {
+// Item 6: cupom só para alguns itens ou categorias (que existam depois do reinício).
+function validarRestricao(entrada: unknown): RestricaoCupom | undefined {
+  if (entrada === null || entrada === undefined) {
+    return undefined;
+  }
+  const restricao = entrada as Partial<RestricaoCupom>;
+  if (restricao.tipo !== 'itens' && restricao.tipo !== 'categorias') {
+    throw new HttpError(400, 'Escolha se o cupom vale para itens ou para categorias');
+  }
+  if (!Array.isArray(restricao.ids) || restricao.ids.length === 0) {
+    throw new HttpError(400, `Escolha ${restricao.tipo === 'itens' ? 'os itens' : 'as categorias'} do cupom`);
+  }
+  const existentes =
+    restricao.tipo === 'itens'
+      ? produtosQueFicam().map((produto) => produto.id)
+      : configPosReinicio().categorias.map((categoria) => categoria.id);
+  const ids = [...new Set(restricao.ids)];
+  if (!ids.every((id) => typeof id === 'string' && existentes.includes(id))) {
+    throw new HttpError(400, `${restricao.tipo === 'itens' ? 'Item' : 'Categoria'} do cupom não encontrado`);
+  }
+  return { tipo: restricao.tipo, ids };
+}
+
+function validarCupomBody(body: CupomBody): Omit<Cupom, 'usos'> {
   const codigo = typeof body?.codigo === 'string' ? body.codigo.trim().toUpperCase() : '';
   if (!CODIGO_CUPOM.test(codigo)) {
     throw new HttpError(400, 'O código do cupom deve ter de 3 a 20 letras ou números');
   }
-  if (body.tipoDesconto !== 'percentual' && body.tipoDesconto !== 'valor_fixo') {
-    throw new HttpError(400, 'Escolha o tipo de desconto do cupom');
+  // US 36: nada de cupom zerado, negativo ou acima de 100%.
+  const problema = problemaNoDesconto(body.tipoDesconto, body.valor);
+  if (problema) {
+    throw new HttpError(400, problema);
   }
 
   const validoDe = dataOpcional(body.validoDe, 'Início da validade');
@@ -275,64 +461,90 @@ function validarCupomBody(body: CupomBody, usos: number | undefined): Cupom {
     throw new HttpError(400, 'O fim da validade deve ser depois do início');
   }
 
-  return {
+  return compactar({
     codigo,
     tipoDesconto: body.tipoDesconto,
-    valor:
-      body.tipoDesconto === 'percentual'
-        ? numero(body.valor, 'Desconto (%)', 0.01, 100)
-        : inteiro(body.valor, 'Desconto (R$)', 1, 10_000_000),
+    valor: body.valor as number,
     validoDe,
     validoAte,
-    limiteUsos:
-      body.limiteUsos === null || body.limiteUsos === undefined
-        ? undefined
-        : inteiro(body.limiteUsos, 'Quantidade de usos', 1, 1_000_000),
-    usos,
+    limiteUsos: inteiroOpcional(body.limiteUsos, 'Quantidade de usos', 1, 1_000_000),
+    aplicaEm: validarRestricao(body.aplicaEm),
+    pedidoMinimoCentavos: centavosOpcional(body.pedidoMinimoCentavos, 'Pedido mínimo'),
+    // Teto só faz sentido para desconto em percentual.
+    descontoMaximoCentavos:
+      body.tipoDesconto === 'percentual'
+        ? centavosOpcional(body.descontoMaximoCentavos, 'Desconto máximo')
+        : undefined,
     ativo: booleano(body.ativo, 'Ativo'),
-  };
+  });
 }
 
 // US 13: todos os cupons, ativos e inativos, com seus atributos e a situação de cada um
-// agora — calculada pela mesma regra que o totem usa para aceitar ou recusar.
-export async function listarCupons(agora: Date = new Date()): Promise<CupomComSituacao[]> {
-  return [...cupons.values()].map((cupom) => ({
-    ...cupom,
-    situacao: situacaoCupom(cupom, agora),
-  }));
+// — calculada pela mesma regra que o totem usa para aceitar ou recusar. Mostra como vão
+// ficar depois do reinício, com a marca do que está pendente.
+export async function listarCupons(
+  agora: Date = new Date(),
+): Promise<ComPendencia<CupomComSituacao>[]> {
+  return cuponsPosReinicio().map((cupom) => ({ ...cupom, situacao: situacaoCupom(cupom, agora) }));
 }
 
-export async function criarCupom(body: CupomBody): Promise<Cupom> {
-  const cupom = validarCupomBody(body, 0);
-  if (cupons.has(cupom.codigo)) {
+export async function criarCupom(body: CupomBody): Promise<ComPendencia<Cupom>> {
+  const cupom: Cupom = { ...validarCupomBody(body), usos: 0 };
+  if (cuponsPosReinicio().some((existente) => existente.codigo === cupom.codigo)) {
     throw new HttpError(409, `Já existe um cupom "${cupom.codigo}"`);
   }
-  cupons.set(cupom.codigo, cupom);
-  persistir();
-  return cupom;
+  rascunho.cupons.novos.push(cupom);
+  persistirRascunho();
+  return { ...cupom, pendente: 'novo' };
 }
 
-// O código identifica o cupom e não muda; os usos já contados são preservados.
-export async function atualizarCupom(codigo: string, body: CupomBody): Promise<Cupom> {
+// O código identifica o cupom e não muda; os usos contados nas vendas são preservados.
+export async function atualizarCupom(codigo: string, body: CupomBody): Promise<ComPendencia<Cupom>> {
+  if (rascunho.cupons.removidos.includes(codigo)) {
+    throw new HttpError(409, 'Este cupom será excluído no reinício. Descarte as pendências para editá-lo.');
+  }
+  const dados = validarCupomBody({ ...body, codigo });
+
+  const indiceNovo = rascunho.cupons.novos.findIndex((novo) => novo.codigo === codigo);
+  if (indiceNovo !== -1) {
+    const cupom = { ...dados, usos: 0 };
+    rascunho.cupons.novos[indiceNovo] = cupom;
+    persistirRascunho();
+    return { ...cupom, pendente: 'novo' };
+  }
+
   const atual = cupons.get(codigo);
   if (!atual) {
     throw new HttpError(404, 'Cupom não encontrado');
   }
-  const cupom = validarCupomBody({ ...body, codigo }, atual.usos);
-  cupons.set(codigo, cupom);
-  persistir();
-  return cupom;
+  const mudancas = diferencas(atual, compactar({ ...dados, usos: atual.usos }));
+  if (Object.keys(mudancas).length === 0) {
+    delete rascunho.cupons.alterados[codigo];
+  } else {
+    rascunho.cupons.alterados[codigo] = mudancas;
+  }
+  persistirRascunho();
+  return cuponsPosReinicio().find((cupom) => cupom.codigo === codigo) as ComPendencia<Cupom>;
 }
 
 export async function excluirCupom(codigo: string): Promise<void> {
-  if (!cupons.delete(codigo)) {
+  const indiceNovo = rascunho.cupons.novos.findIndex((novo) => novo.codigo === codigo);
+  if (indiceNovo !== -1) {
+    rascunho.cupons.novos.splice(indiceNovo, 1);
+  } else if (cupons.has(codigo)) {
+    if (!rascunho.cupons.removidos.includes(codigo)) {
+      rascunho.cupons.removidos.push(codigo);
+    }
+    delete rascunho.cupons.alterados[codigo];
+  } else {
     throw new HttpError(404, 'Cupom não encontrado');
   }
-  persistir();
+  persistirRascunho();
 }
 
 // ---------- Clientes de fidelidade ----------
 // LGPD: dado pessoal — exige consentimento/criptografia (CPF dos clientes)
+// São dados, não configuração: mudam na hora.
 
 function validarPontos(pontos: unknown): number {
   return inteiro(pontos, 'Pontos', 0, 100_000_000);
@@ -361,7 +573,7 @@ export async function cadastrarCliente(body: ClienteBody): Promise<ClienteFideli
 }
 
 // As rotas identificam o cliente pelo id, não pelo CPF, para o CPF não aparecer em URL
-// (e, com isso, no log do servidor).
+// (e, com isso, no log do servidor). O id também é o que vai no QR Code do cartão.
 function obterClientePorId(id: string): ClienteFidelidade {
   const cliente = [...clientesFidelidade.values()].find((c) => c.id === id);
   if (!cliente) {
@@ -390,30 +602,4 @@ export async function removerCliente(id: string): Promise<void> {
 // Registros mais recentes primeiro: data, hora, versão do termo, finalidade e decisão.
 export async function listarConsentimentos(limite = 200): Promise<RegistroConsentimento[]> {
   return registrosConsentimento.slice(-limite).reverse();
-}
-
-// ---------- Pedidos aguardando retirada ----------
-
-// Só o necessário para o balcão conferir o pedido: nada de CPF ou dados do cliente.
-export async function listarPedidosAguardando(): Promise<PedidoAguardandoRetirada[]> {
-  return [...pedidos.values()]
-    .filter(pedidoAguardaRetirada)
-    .sort((a, b) => a.criadoEm.localeCompare(b.criadoEm))
-    .map((pedido) => ({
-      id: pedido.id,
-      numero: pedido.numero as string,
-      itens: pedido.itens.map(({ nome, quantidade }) => ({ nome, quantidade })),
-      valorAPagarCentavos: pedido.valorAPagarCentavos,
-      criadoEm: pedido.criadoEm,
-    }));
-}
-
-// O "ok" do balcão: o pedido foi entregue e o número dele volta a ficar livre.
-export async function confirmarEntrega(pedidoId: string): Promise<void> {
-  const pedido = pedidos.get(pedidoId);
-  if (!pedido || !pedidoAguardaRetirada(pedido)) {
-    throw new HttpError(404, 'Pedido não está aguardando retirada');
-  }
-  pedido.entregueEm = new Date().toISOString();
-  persistir();
 }

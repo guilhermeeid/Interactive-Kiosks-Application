@@ -1,8 +1,10 @@
-import type { ItemCardapio, Pedido } from '@totem/shared';
+import type { ItemPedido, Pedido } from '@totem/shared';
 import {
+  demandaPorItem,
   exigirPedidoEmMontagem,
   itemDisponivel,
-  itensCardapio,
+  itemSemEstoque,
+  obterItem,
   obterOuCriarPedido,
   recalcularPedido,
 } from '../../db/memory-store';
@@ -21,12 +23,21 @@ function exigirQuantidadeValida(quantidade: unknown, minimo: number): void {
   }
 }
 
-// Quando o administrador informa a quantidade à venda, o carrinho não passa dela.
-function exigirEstoque(item: ItemCardapio, quantidade: number): void {
-  if (item.estoque !== undefined && quantidade > item.estoque) {
-    const restam = item.estoque === 1 ? 'só resta 1 unidade' : `só restam ${item.estoque} unidades`;
-    throw new HttpError(400, `Quantidade máxima atingida: ${restam} de ${item.nome}`);
+// Quando o administrador informa a quantidade à venda, o carrinho não passa dela. A
+// conta é feita pelo carrinho inteiro: um combo consome os itens que o compõem, que
+// também podem estar no carrinho avulsos.
+function exigirEstoque(linhas: Pick<ItemPedido, 'itemCardapioId' | 'quantidade'>[]): void {
+  const falta = itemSemEstoque(demandaPorItem(linhas));
+  if (falta) {
+    const restam = falta.restam === 1 ? 'só resta 1 unidade' : `só restam ${falta.restam} unidades`;
+    throw new HttpError(400, `Quantidade máxima atingida: ${restam} de ${falta.item.nome}`);
   }
+}
+
+// O carrinho como ficaria com `quantidade` unidades do item (0 = sem o item).
+function linhasCom(pedido: Pedido, itemCardapioId: string, quantidade: number) {
+  const outras = pedido.itens.filter((linha) => linha.itemCardapioId !== itemCardapioId);
+  return quantidade > 0 ? [...outras, { itemCardapioId, quantidade }] : outras;
 }
 
 // US-02: Adicionar ao carrinho — o preço/nome são sempre lidos do cardápio no
@@ -36,7 +47,7 @@ export async function adicionarItem(body: AdicionarItemCarrinhoBody): Promise<Pe
   const pedido = obterOuCriarPedido(body.pedidoId);
   exigirPedidoEmMontagem(pedido);
 
-  const itemCardapio = itensCardapio.find((item) => item.id === body.item.itemCardapioId);
+  const itemCardapio = obterItem(body.item.itemCardapioId);
   if (!itemCardapio) {
     throw new HttpError(400, `Item de cardápio "${body.item.itemCardapioId}" não encontrado`);
   }
@@ -45,9 +56,10 @@ export async function adicionarItem(body: AdicionarItemCarrinhoBody): Promise<Pe
   }
 
   const existente = pedido.itens.find((item) => item.itemCardapioId === itemCardapio.id);
-  exigirEstoque(itemCardapio, (existente?.quantidade ?? 0) + body.item.quantidade);
+  const novaQuantidade = (existente?.quantidade ?? 0) + body.item.quantidade;
+  exigirEstoque(linhasCom(pedido, itemCardapio.id, novaQuantidade));
   if (existente) {
-    existente.quantidade += body.item.quantidade;
+    existente.quantidade = novaQuantidade;
   } else {
     pedido.itens.push({
       itemCardapioId: itemCardapio.id,
@@ -79,11 +91,11 @@ export async function atualizarItem(body: AtualizarItemCarrinhoBody): Promise<Pe
   } else {
     // Aumentar a quantidade passa pelas mesmas regras de adicionar (US 26).
     if (body.quantidade > item.quantidade) {
-      const itemCardapio = itensCardapio.find((i) => i.id === body.itemCardapioId);
+      const itemCardapio = obterItem(body.itemCardapioId);
       if (!itemCardapio || !itemDisponivel(itemCardapio)) {
         throw new HttpError(400, 'Item indisponível no momento');
       }
-      exigirEstoque(itemCardapio, body.quantidade);
+      exigirEstoque(linhasCom(pedido, body.itemCardapioId, body.quantidade));
     }
     item.quantidade = body.quantidade;
   }

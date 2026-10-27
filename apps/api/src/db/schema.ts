@@ -18,7 +18,16 @@ export interface CategoriaCardapioRow {
   id: string;
   nome: string;
   icone: string | null;
+  icone_imagem_url: string | null;
+  capa_url: string | null;
   ordem: number;
+}
+
+// Item 7: pendências do Administrador, aplicadas quando o servidor reinicia.
+export interface RascunhoAdminRow {
+  id: true;
+  dados: unknown; // RascunhoSalvo (ver ./persistencia.ts)
+  atualizado_em: string;
 }
 
 export interface ItemCardapioRow {
@@ -29,8 +38,15 @@ export interface ItemCardapioRow {
   preco_centavos: number;
   imagem_url: string | null;
   icone: string | null;
-  estoque: number | null; // null = sem controle de quantidade
+  estoque: number | null; // null = sem controle de quantidade (sempre null em combo)
   disponivel: boolean;
+}
+
+// Item 13: itens que compõem um combo.
+export interface ComponenteComboRow {
+  combo_id: string;
+  item_cardapio_id: string;
+  quantidade: number;
 }
 
 export interface ClienteFidelidadeRow {
@@ -47,6 +63,10 @@ export interface CupomRow {
   valido_ate: string | null;
   limite_usos: number | null; // null = sem limite
   usos: number;
+  aplica_em_tipo: 'itens' | 'categorias' | null; // null = pedido inteiro
+  aplica_em_ids: string[] | null;
+  pedido_minimo_centavos: number | null;
+  desconto_maximo_centavos: number | null; // só no percentual
   ativo: boolean;
 }
 
@@ -64,7 +84,9 @@ export interface PedidoRow {
   valor_a_pagar_centavos: number;
   numero: string | null; // três dígitos; único entre pedidos ainda não entregues
   entregue_em: string | null;
-  sem_dados_pessoais: boolean; // US 10: cliente pulou a identificação
+  consumo: 'local' | 'viagem' | null;
+  forma_pagamento: string | null;
+  pontos_previstos: number; // dinheiro: creditados quando o caixa confirma
   criado_em: string;
 }
 

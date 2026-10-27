@@ -3,14 +3,14 @@ import {
   consultarCpf,
   informarCpfNota,
   informarFidelidade,
-  pularIdentificacao,
+  informarFidelidadePorQr,
   usarPontos,
 } from './identificacao.service';
 import type {
   ConsultarCpfBody,
   InformarCpfNotaBody,
   InformarFidelidadeBody,
-  PularIdentificacaoBody,
+  InformarFidelidadePorQrBody,
   UsarPontosBody,
 } from './identificacao.types';
 
@@ -41,8 +41,8 @@ export async function identificacaoRoutes(app: FastifyInstance): Promise<void> {
     return informarCpfNota(request.body);
   });
 
-  // US 10: Pular a identificação
-  app.post<{ Body: PularIdentificacaoBody }>('/pular', async (request) => {
-    return pularIdentificacao(request.body);
+  // Fidelidade pelo QR Code do cartão do cliente
+  app.post<{ Body: InformarFidelidadePorQrBody }>('/fidelidade/qr', async (request) => {
+    return informarFidelidadePorQr(request.body);
   });
 }

@@ -1,36 +1,46 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { ConfigTotem } from '@totem/shared';
 import type { FastifyInstance } from 'fastify';
-import { loadEnv } from '../../config/env';
 import { lerImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
+import { exigirPapel } from './acesso';
 import {
   atualizarConfig,
   atualizarCupom,
   atualizarPontosCliente,
   atualizarProduto,
   cadastrarCliente,
-  confirmarEntrega,
   criarCupom,
   criarProduto,
+  descartarPendencias,
   enviarImagem,
   excluirCupom,
   listarClientes,
   listarConsentimentos,
   listarCupons,
-  listarPedidosAguardando,
   listarProdutos,
   obterConfig,
+  obterConfigAdmin,
+  obterPendencias,
   removerCliente,
   removerProduto,
 } from './admin.service';
 import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
 
-// Rotas públicas que o totem lê ao iniciar: a configuração definida pelo administrador
-// e as imagens (fotos dos itens e logotipo) enviadas por ele.
+// Identifica esta execução do servidor. Quando muda, o servidor foi reiniciado (e as
+// mudanças do Administrador entraram em vigor): o totem se recarrega na próxima vez que
+// voltar à tela inicial.
+const VERSAO_SERVIDOR = randomUUID();
+
+// Rotas públicas que o totem lê: a configuração em vigor, as imagens (fotos dos itens,
+// logotipo, publicidade) e a versão do servidor.
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   app.get('/config', async () => {
     return obterConfig();
+  });
+
+  app.get('/versao', async () => {
+    return { versao: VERSAO_SERVIDOR };
   });
 
   app.get<{ Params: { arquivo: string } }>('/imagens/:arquivo', async (request, reply) => {
@@ -46,31 +56,23 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-function pinConfere(recebido: unknown, esperado: string): boolean {
-  if (typeof recebido !== 'string') {
-    return false;
-  }
-  const a = Buffer.from(recebido);
-  const b = Buffer.from(esperado);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-// Rotas da tela de administrador. Todas exigem o PIN (variável ADMIN_PIN) no cabeçalho
-// `x-admin-pin`. É uma trava simples para esta fase, não um login com usuários.
+// Rotas do modo Administrador (PIN ADMIN_PIN no cabeçalho `x-pin`). Configuração,
+// produtos e cupons ficam pendentes até o servidor reiniciar; clientes de fidelidade
+// mudam na hora.
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
-  const { adminPin } = loadEnv();
+  exigirPapel(app, ['administrador']);
 
-  app.addHook('onRequest', async (request) => {
-    if (!pinConfere(request.headers['x-admin-pin'], adminPin)) {
-      throw new HttpError(401, 'PIN de administrador incorreto');
-    }
+  app.get('/pendencias', async () => {
+    return obterPendencias();
   });
-
-  // Usada pela tela de entrada para conferir o PIN.
-  app.get('/sessao', async (_request, reply) => {
+  app.delete('/pendencias', async (_request, reply) => {
+    await descartarPendencias();
     return reply.status(204).send();
   });
 
+  app.get('/config', async () => {
+    return obterConfigAdmin();
+  });
   app.put<{ Body: ConfigTotem }>('/config', async (request) => {
     return atualizarConfig(request.body);
   });
@@ -128,14 +130,6 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   );
   app.delete<{ Params: { id: string } }>('/clientes/:id', async (request, reply) => {
     await removerCliente(request.params.id);
-    return reply.status(204).send();
-  });
-
-  app.get('/pedidos', async () => {
-    return listarPedidosAguardando();
-  });
-  app.post<{ Params: { id: string } }>('/pedidos/:id/entregar', async (request, reply) => {
-    await confirmarEntrega(request.params.id);
     return reply.status(204).send();
   });
 

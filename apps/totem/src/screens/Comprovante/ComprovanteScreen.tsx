@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { CanalComprovante, Comprovante } from '@totem/shared';
 import { AvisoConsentimento } from '../../components/AvisoConsentimento';
 import { TecladoNumerico } from '../../components/TecladoNumerico';
@@ -10,14 +10,16 @@ import {
 import { useConfig, useTermoConsentimento } from '../../contexts/ConfigContext';
 import { usePedido } from '../../contexts/PedidoContext';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { formatarCentavos } from '../../utils/formatarMoeda';
 
 const NOME_CANAL: Record<CanalComprovante, string> = { email: 'e-mail', sms: 'SMS' };
 
+// Tela 5 — Emissão de nota e comprovante.
 // US-08: Receber comprovante por e-mail/SMS.
 // US 29: e-mail e telefone só podem ser digitados depois que o cliente concorda com o
 // uso; recusar conclui o pedido do mesmo jeito, sem guardar nada.
-// US 10: quem pulou a identificação não é perguntado por dados pessoais de novo — o
-// pedido é concluído direto, sem esta etapa.
+// Item 2: pedido em dinheiro não tem nota nem comprovante aqui — o cliente paga no
+// caixa, onde a nota é emitida e impressa.
 // LGPD: dado pessoal — exige consentimento/criptografia (e-mail/telefone digitados
 // nesta tela).
 export function ComprovanteScreen() {
@@ -31,9 +33,8 @@ export function ComprovanteScreen() {
   const { paginas } = useConfig().aparencia;
   const termo = useTermoConsentimento();
   const { pedidoId, pedido, reiniciarPedido } = usePedido();
-  const semDadosPessoais = pedido?.semDadosPessoais === true;
 
-  const concluir = useCallback(async (acao: () => Promise<Comprovante>) => {
+  async function concluir(acao: () => Promise<Comprovante>) {
     setEnviando(true);
     setErro(null);
     try {
@@ -43,17 +44,7 @@ export function ComprovanteScreen() {
     } finally {
       setEnviando(false);
     }
-  }, []);
-
-  const concluirSemDados = useCallback(
-    () => concluir(() => dispensarComprovante(pedidoId)),
-    [concluir, pedidoId],
-  );
-  useEffect(() => {
-    if (semDadosPessoais) {
-      concluirSemDados();
-    }
-  }, [semDadosPessoais, concluirSemDados]);
+  }
 
   // A decisão do cliente é registrada antes de o e-mail/telefone sair do totem.
   const enviar = () =>
@@ -81,6 +72,42 @@ export function ComprovanteScreen() {
     }
   }
 
+  // Número que o cliente acompanha até a retirada, na mesma hierarquia do título; fica
+  // reservado até o balcão confirmar a entrega.
+  const numero = pedido?.numero && (
+    <p className="tela__titulo numero-pedido" aria-label={`Pedido número ${pedido.numero}`}>
+      Nº {pedido.numero}
+    </p>
+  );
+
+  if (pedido?.status === 'aguardando_pagamento') {
+    return (
+      <div className="tela">
+        <div className="sucesso cartao">
+          <div className="sucesso__icone" aria-hidden="true">
+            💵
+          </div>
+          <h1 className="tela__titulo">Pague no caixa</h1>
+          {numero}
+          <p className="tela__subtitulo">
+            Dirija-se ao caixa e informe o número do pedido para pagar{' '}
+            <strong>{formatarCentavos(pedido.valorAPagarCentavos)}</strong> em dinheiro.
+          </p>
+          <p className="nota">A nota fiscal será emitida e impressa no caixa.</p>
+          {!!pedido.pontosPrevistos && (
+            <p className="pontos-acumulados">
+              Ao pagar, você acumula {pedido.pontosPrevistos.toLocaleString('pt-BR')} pontos de
+              fidelidade.
+            </p>
+          )}
+          <BotaoTouch variante="primario" onClick={reiniciarPedido}>
+            Novo pedido
+          </BotaoTouch>
+        </div>
+      </div>
+    );
+  }
+
   if (comprovante) {
     return (
       <div className="tela">
@@ -89,13 +116,7 @@ export function ComprovanteScreen() {
             🎉
           </div>
           <h1 className="tela__titulo">Pedido concluído!</h1>
-          {/* Número que o cliente acompanha até a retirada; fica reservado até o balcão
-              confirmar a entrega. */}
-          {pedido?.numero && (
-            <p className="tela__titulo numero-pedido" aria-label={`Pedido número ${pedido.numero}`}>
-              Nº {pedido.numero}
-            </p>
-          )}
+          {numero}
           <p className="tela__subtitulo">
             {comprovante.destino
               ? `Comprovante enviado por ${NOME_CANAL[comprovante.destino.canal]}.`
@@ -103,8 +124,7 @@ export function ComprovanteScreen() {
           </p>
           {!!pedido?.pontosAcumulados && (
             <p className="pontos-acumulados">
-              Você acumulou {pedido.pontosAcumulados.toLocaleString('pt-BR')} pontos de
-              fidelidade.
+              Você acumulou {pedido.pontosAcumulados.toLocaleString('pt-BR')} pontos de fidelidade.
             </p>
           )}
           {/* US 09: confirma ao cliente que o CPF saiu na nota (mascarado: a tela é pública). */}
@@ -117,25 +137,6 @@ export function ComprovanteScreen() {
           <BotaoTouch variante="primario" onClick={reiniciarPedido}>
             Novo pedido
           </BotaoTouch>
-        </div>
-      </div>
-    );
-  }
-
-  if (semDadosPessoais) {
-    return (
-      <div className="tela">
-        <div className="vazio cartao">
-          {erro ? (
-            <>
-              <p className="erro">{erro}</p>
-              <BotaoTouch variante="primario" onClick={concluirSemDados} disabled={enviando}>
-                Tentar de novo
-              </BotaoTouch>
-            </>
-          ) : (
-            <p className="aviso">Finalizando seu pedido...</p>
-          )}
         </div>
       </div>
     );

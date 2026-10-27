@@ -4,12 +4,15 @@ import { useConfig } from '../../contexts/ConfigContext';
 import { usePedido } from '../../contexts/PedidoContext';
 import { useAvisoTemporario } from '../../hooks/useAvisoTemporario';
 import { BotaoTouch } from '../../components/BotaoTouch';
+import { SecaoCupom, SecaoPontos } from '../../components/DescontosPedido';
+import { ResumoPedido } from '../../components/ResumoPedido';
 import { SeletorQuantidade } from '../../components/SeletorQuantidade';
 import { formatarCentavos } from '../../utils/formatarMoeda';
 
-// US-02: reflexo do item adicionado a partir do Cardápio.
-// US-03: Revisar/editar carrinho.
-// Descontos (cupom e pontos) não aparecem aqui: só na tela de Pagamento.
+// Tela 3 — Carrinho, com cupom e pontos de fidelidade.
+// US-03 / US 04 / US 05: revisar e editar o pedido. Reduzir a zero remove o item, sem
+// confirmação (decisão de produto). Carrinho vazio: só resta voltar ao cardápio.
+// US 13 / US 14: aplicar, trocar e remover cupom. Pontos: só para quem se identificou.
 export function CarrinhoScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, mostrarAviso] = useAvisoTemporario();
@@ -17,7 +20,6 @@ export function CarrinhoScreen() {
   const { pedidoId, pedido, recarregarPedido, irParaEtapa } = usePedido();
   const itens = pedido?.itens ?? [];
 
-  // Reduzir a zero remove o item, sem confirmação (decisão de produto).
   async function alterarQuantidade(itemCardapioId: string, quantidade: number) {
     try {
       await atualizarItemCarrinho(pedidoId, itemCardapioId, quantidade);
@@ -55,7 +57,7 @@ export function CarrinhoScreen() {
       <ul className="carrinho-lista">
         {itens.map((item) => (
           <li key={item.itemCardapioId} className="carrinho-item">
-            <div>
+            <div className="carrinho-item__descricao">
               <span className="carrinho-item__nome">{item.nome}</span>
               <span className="carrinho-item__unitario">
                 {formatarCentavos(item.precoUnitarioCentavos)} cada
@@ -80,27 +82,27 @@ export function CarrinhoScreen() {
         ))}
       </ul>
 
+      {itens.length > 0 && (
+        <>
+          <SecaoCupom />
+          <SecaoPontos />
+          <ResumoPedido pedido={pedido} />
+        </>
+      )}
+
       {aviso && (
         <p className="aviso-flutuante" role="status">
           {aviso}
         </p>
       )}
 
-      <p className="total">
-        <span>Total</span>
-        <strong>{formatarCentavos(pedido?.valorTotalCentavos ?? 0)}</strong>
-      </p>
-
       <div className="tela__acoes">
         <BotaoTouch onClick={() => irParaEtapa('cardapio')}>Voltar ao cardápio</BotaoTouch>
-        <BotaoTouch
-          variante="primario"
-          // US 10: quem já pulou a identificação neste pedido não é perguntado de novo.
-          onClick={() => irParaEtapa(pedido?.semDadosPessoais ? 'pagamento' : 'identificacao')}
-          disabled={itens.length === 0}
-        >
-          Continuar
-        </BotaoTouch>
+        {itens.length > 0 && (
+          <BotaoTouch variante="primario" onClick={() => irParaEtapa('pagamento')}>
+            Ir para o pagamento
+          </BotaoTouch>
+        )}
       </div>
     </div>
   );

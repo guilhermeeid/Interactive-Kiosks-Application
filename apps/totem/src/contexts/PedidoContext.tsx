@@ -2,10 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { ClienteFidelidade, Pedido } from '@totem/shared';
 import { obterCarrinho } from '../services/apiClient';
 
-// Etapas do fluxo linear do totem: Cardápio -> Carrinho -> Identificação ->
-// Pagamento -> Comprovante. Sem roteador — o cliente nunca deve usar "voltar" do
+// Etapas do fluxo do totem: Início (publicidade, "Toque para começar") -> Fidelidade ->
+// Cardápio -> Carrinho (cupom e pontos) -> Pagamento (consumo e CPF na nota) ->
+// Conclusão (comprovante e nota). Sem roteador — o cliente nunca deve usar "voltar" do
 // navegador em um kiosk.
-export type EtapaFluxo = 'cardapio' | 'carrinho' | 'identificacao' | 'pagamento' | 'comprovante';
+export type EtapaFluxo =
+  'inicio' | 'fidelidade' | 'cardapio' | 'carrinho' | 'pagamento' | 'conclusao';
 
 interface PedidoContextValue {
   pedidoId: string;
@@ -34,7 +36,7 @@ export function PedidoProvider({ children }: { children: ReactNode }) {
   const [pedidoId, setPedidoId] = useState<string>(gerarPedidoId);
   const [pedido, setPedido] = useState<Pedido | null>(null);
   const [clienteFidelidade, setClienteFidelidade] = useState<ClienteFidelidade | null>(null);
-  const [etapaAtual, setEtapaAtual] = useState<EtapaFluxo>('cardapio');
+  const [etapaAtual, setEtapaAtual] = useState<EtapaFluxo>('inicio');
 
   const recarregarPedido = useCallback(async () => {
     const atual = await obterCarrinho(pedidoId);
@@ -48,11 +50,12 @@ export function PedidoProvider({ children }: { children: ReactNode }) {
     });
   }, [recarregarPedido]);
 
+  // Volta para a tela inicial com um pedido novo, sem nada do cliente anterior.
   const reiniciarPedido = useCallback(() => {
     setPedidoId(gerarPedidoId());
     setPedido(null);
     setClienteFidelidade(null);
-    setEtapaAtual('cardapio');
+    setEtapaAtual('inicio');
   }, []);
 
   const value: PedidoContextValue = {

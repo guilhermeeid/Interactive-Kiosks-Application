@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { criarConfigPadrao } from '../../db/config-padrao';
-import { clientesFidelidade, config, registrosConsentimento } from '../../db/memory-store';
+import { clientesFidelidade, config } from '../../db/memory-store';
 import { HttpError } from '../../errors';
 import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
 import { registrarConsentimentos } from '../consentimento/consentimento.service';
@@ -13,7 +13,7 @@ import {
   consultarFidelidade,
   informarCpfNota,
   informarFidelidade,
-  pularIdentificacao,
+  informarFidelidadePorQr,
   usarPontos,
 } from './identificacao.service';
 
@@ -148,63 +148,49 @@ describe('informarCpfNota', () => {
     expect((await informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO })).cpfNaNota).toBe(CPF_CADASTRADO);
   });
 
-  it('desfaz a fidelidade e os pontos ao trocar o CPF do pedido', async () => {
+  // Item 3: nenhuma regra fiscal exige que o CPF da nota seja o da fidelidade.
+  it('CPF na nota é independente do CPF da fidelidade: outro CPF não desfaz a fidelidade', async () => {
     const pedidoId = await pedidoComLanche();
-    await informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO });
     await informarFidelidade({ pedidoId, numeroFidelidade: CPF_CADASTRADO });
     await usarPontos({ pedidoId, pontos: 300 });
 
     const pedido = await informarCpfNota({ pedidoId, cpf: CPF_SEM_CADASTRO });
-    expect(pedido.clienteId).toBeUndefined();
-    expect(pedido.pontosUsados).toBeUndefined();
-    expect(pedido.valorAPagarCentavos).toBe(1890);
+    expect(pedido.cpfNaNota).toBe(CPF_SEM_CADASTRO);
+    expect(pedido.clienteId).toBe('cliente-demo');
+    expect(pedido.pontosUsados).toBe(300);
+    expect(pedido.valorAPagarCentavos).toBe(1890 - 300);
+  });
+
+  it('fidelidade sem CPF na nota: o pedido fica com o cliente e sem CPF', async () => {
+    const pedidoId = randomUUID();
+    await consentir(pedidoId, { fidelidade: true, cpf_nota: false });
+    await informarFidelidade({ pedidoId, numeroFidelidade: CPF_CADASTRADO });
+    const pedido = await obterCarrinho(pedidoId);
+    expect(pedido.clienteId).toBe('cliente-demo');
+    expect(pedido.cpfNaNota).toBeUndefined();
   });
 });
 
-// US 10
-describe('pularIdentificacao', () => {
-  it('tira CPF, fidelidade e pontos do pedido, que segue sem dados pessoais', async () => {
-    const pedidoId = await pedidoComLanche();
-    await informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO });
-    await informarFidelidade({ pedidoId, numeroFidelidade: CPF_CADASTRADO });
-    await usarPontos({ pedidoId, pontos: 300 });
-
-    const pedido = await pularIdentificacao({ pedidoId, versaoTermo: VERSAO_TERMO });
-    expect(pedido.semDadosPessoais).toBe(true);
-    expect(pedido.cpfNaNota).toBeUndefined();
-    expect(pedido.clienteId).toBeUndefined();
-    expect(pedido.descontoPontosCentavos).toBe(0);
-    expect(pedido.valorAPagarCentavos).toBe(1890);
+// Câmera do totem: o QR Code do cartão de fidelidade leva o id do cadastro, não o CPF.
+describe('informarFidelidadePorQr', () => {
+  it('identifica o cliente pelo código do cartão', async () => {
+    const pedidoId = randomUUID();
+    await consentir(pedidoId, { fidelidade: true });
+    const cliente = await informarFidelidadePorQr({ pedidoId, codigo: 'cliente-demo' });
+    expect(cliente.pontos).toBe(1250);
+    expect((await obterCarrinho(pedidoId)).clienteId).toBe('cliente-demo');
   });
 
-  it('registra na auditoria a recusa das finalidades que foram apresentadas', async () => {
+  it('exige o consentimento da fidelidade e recusa código desconhecido', async () => {
     const pedidoId = randomUUID();
-    await pularIdentificacao({ pedidoId, versaoTermo: VERSAO_TERMO });
-    const recusas = registrosConsentimento.filter((registro) => registro.pedidoId === pedidoId);
-    expect(recusas.map(({ finalidade, aceito }) => [finalidade, aceito])).toEqual([
-      ['cpf_nota', false],
-      ['fidelidade', false],
-    ]);
+    await expect(
+      informarFidelidadePorQr({ pedidoId, codigo: 'cliente-demo' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
 
-    // Com a fidelidade desligada, essa finalidade nem é apresentada.
-    config.fidelidade.habilitado = false;
-    const outro = randomUUID();
-    await pularIdentificacao({ pedidoId: outro, versaoTermo: VERSAO_TERMO });
-    expect(
-      registrosConsentimento
-        .filter((registro) => registro.pedidoId === outro)
-        .map((registro) => registro.finalidade),
-    ).toEqual(['cpf_nota']);
-  });
-
-  it('não permite informar o CPF de novo no mesmo pedido', async () => {
-    const pedidoId = randomUUID();
-    await pularIdentificacao({ pedidoId, versaoTermo: VERSAO_TERMO });
-    await expect(consentir(pedidoId)).rejects.toMatchObject({ statusCode: 409 });
-    await expect(informarCpfNota({ pedidoId, cpf: CPF_CADASTRADO })).rejects.toMatchObject({
-      statusCode: 403,
-    });
-    expect((await obterCarrinho(pedidoId)).cpfNaNota).toBeUndefined();
+    await consentir(pedidoId, { fidelidade: true });
+    await expect(
+      informarFidelidadePorQr({ pedidoId, codigo: 'nao-existe' }),
+    ).rejects.toMatchObject({ statusCode: 404, message: 'Cartão de fidelidade não encontrado' });
   });
 });
 

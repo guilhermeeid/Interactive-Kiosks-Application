@@ -8,3 +8,4 @@ export * from './Pagamento';
 export * from './Comprovante';
 export * from './ConfigTotem';
 export * from './Consentimento';
+export * from './Acesso';

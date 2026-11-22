@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { criarConfigPadrao } from '../../db/config-padrao';
-import { clientesFidelidade, config } from '../../db/memory-store';
+import { clientesFidelidade, config, pedidos } from '../../db/memory-store';
 import { HttpError } from '../../errors';
-import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
+import { adicionarItem, desistirDoPedido, obterCarrinho } from '../carrinho/carrinho.service';
 import { registrarConsentimentos } from '../consentimento/consentimento.service';
 import type { RegistrarConsentimentosBody } from '../consentimento/consentimento.types';
 import { VERSAO_TERMO } from '../consentimento/termo';
@@ -22,6 +22,10 @@ const CPF_SEM_CADASTRO = '11144477735';
 
 afterEach(() => {
   Object.assign(config, criarConfigPadrao());
+  // Os testes usam o mesmo cliente de demonstração: sem isto, os pontos que um pedido
+  // reservou (Card B / US 37) ficariam presos para o teste seguinte.
+  pedidos.clear();
+  vi.restoreAllMocks();
 });
 
 // O cliente marca as finalidades no termo antes de informar o CPF (US 29).
@@ -254,5 +258,70 @@ describe('usarPontos', () => {
     await expect(usarPontos({ pedidoId, pontos: 300 })).rejects.toThrow(
       'Pontos e cupom não podem ser usados no mesmo pedido',
     );
+  });
+});
+
+// Card B / US 37: saldo mínimo e reserva dos pontos durante o checkout.
+describe('reserva de pontos', () => {
+  async function pedidoIdentificado(): Promise<string> {
+    const pedidoId = await pedidoComLanche();
+    await informarFidelidade({ pedidoId, numeroFidelidade: CPF_CADASTRADO });
+    return pedidoId;
+  }
+
+  it('explica quando o saldo é menor que o mínimo exigido para usar pontos', async () => {
+    config.fidelidade.minimoPontosResgate = 2000;
+    const pedidoId = await pedidoIdentificado();
+    await expect(usarPontos({ pedidoId, pontos: 100 })).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Para usar pontos é preciso ter pelo menos 2.000 pontos. Seu saldo é de 1.250 pontos',
+    });
+    expect((await obterCarrinho(pedidoId)).pontosUsados).toBeUndefined();
+  });
+
+  it('outro pedido do mesmo cliente não usa os pontos reservados', async () => {
+    const primeiro = await pedidoIdentificado();
+    const segundo = await pedidoIdentificado();
+    await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+
+    await expect(usarPontos({ pedidoId: segundo, pontos: 300 })).rejects.toMatchObject({
+      statusCode: 409,
+      message:
+        '1.000 dos seus pontos estão reservados em outro pedido em andamento. ' +
+        'Dá para usar até 250 pontos agora',
+    });
+    expect((await usarPontos({ pedidoId: segundo, pontos: 250 })).pontosUsados).toBe(250);
+    // A reserva não tira nada do saldo: isso só acontece no pagamento.
+    expect((await consultarFidelidade(CPF_CADASTRADO)).pontos).toBe(1250);
+  });
+
+  it('a reserva vence e os pontos voltam a ficar livres', async () => {
+    const primeiro = await pedidoIdentificado();
+    const segundo = await pedidoIdentificado();
+    const reserva = await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+    expect(reserva.reservaPontosAte).toBeDefined();
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(reserva.reservaPontosAte as string) + 1);
+    expect((await usarPontos({ pedidoId: segundo, pontos: 1000 })).pontosUsados).toBe(1000);
+  });
+
+  it('desistir do pedido libera os pontos na hora', async () => {
+    const primeiro = await pedidoIdentificado();
+    const segundo = await pedidoIdentificado();
+    await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+
+    await desistirDoPedido(primeiro);
+    expect((await usarPontos({ pedidoId: segundo, pontos: 1000 })).pontosUsados).toBe(1000);
+    // Voltar ao início duas vezes não dá erro.
+    await expect(desistirDoPedido(primeiro)).resolves.toBeUndefined();
+  });
+
+  it('desfazer o resgate solta a reserva', async () => {
+    const primeiro = await pedidoIdentificado();
+    const segundo = await pedidoIdentificado();
+    await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+    const desfeito = await usarPontos({ pedidoId: primeiro, pontos: 0 });
+    expect(desfeito.reservaPontosAte).toBeUndefined();
+    expect((await usarPontos({ pedidoId: segundo, pontos: 1250 })).pontosUsados).toBe(1250);
   });
 });

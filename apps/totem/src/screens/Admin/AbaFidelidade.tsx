@@ -27,6 +27,7 @@ function SecaoRegras({ config, salvarConfig }: PropsAba) {
   // Os números ficam como texto enquanto são digitados, para o campo poder ficar vazio.
   const [percentual, setPercentual] = useState(String(config.fidelidade.percentualAcumulo));
   const [pontosPorReal, setPontosPorReal] = useState(String(config.fidelidade.pontosPorReal));
+  const [minimoResgate, setMinimoResgate] = useState(String(config.fidelidade.minimoPontosResgate));
   const { retorno, ocupado, executar } = useAcao();
 
   const alterar = (parcial: Partial<ConfigFidelidade>) =>
@@ -44,6 +45,7 @@ function SecaoRegras({ config, salvarConfig }: PropsAba) {
             ...regras,
             percentualAcumulo: percentualNumero,
             pontosPorReal: pontosPorRealNumero,
+            minimoPontosResgate: Number(minimoResgate),
           },
         }),
       SALVO_PENDENTE,
@@ -83,6 +85,19 @@ function SecaoRegras({ config, salvarConfig }: PropsAba) {
               inputMode="numeric"
               value={pontosPorReal}
               onChange={(evento) => setPontosPorReal(evento.target.value)}
+            />
+          </Campo>
+
+          {/* Card B / US 37 */}
+          <Campo
+            rotulo="Saldo mínimo para usar pontos"
+            dica="Abaixo dele, o carrinho mostra quantos pontos faltam em vez de oferecer o desconto. 0 = sem mínimo."
+          >
+            <input
+              type="text"
+              inputMode="numeric"
+              value={minimoResgate}
+              onChange={(evento) => setMinimoResgate(evento.target.value)}
             />
           </Campo>
 

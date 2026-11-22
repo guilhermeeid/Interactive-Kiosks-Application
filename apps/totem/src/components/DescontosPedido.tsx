@@ -106,7 +106,10 @@ export function SecaoCupom() {
 }
 
 // Pontos de fidelidade como desconto. Só aparece para quem se identificou com um CPF
-// cadastrado; o servidor recusa (e explica) se o cliente pedir mais pontos do que tem.
+// cadastrado; o servidor recusa (e explica) se o cliente pedir mais pontos do que tem ou
+// se os pontos estiverem reservados em outro pedido. Card B / US 37: abaixo do saldo
+// mínimo definido pelo administrador, a seção explica quanto falta em vez de oferecer
+// o resgate.
 export function SecaoPontos() {
   const [pontos, setPontos] = useState('');
   const [erro, setErro] = useState<string | null>(null);
@@ -139,7 +142,14 @@ export function SecaoPontos() {
         Seu saldo: <strong>{clienteFidelidade.pontos.toLocaleString('pt-BR')} pontos</strong> (
         {fidelidade.pontosPorReal.toLocaleString('pt-BR')} pontos = R$ 1,00)
       </p>
-      {pedido?.pontosUsados ? (
+      {clienteFidelidade.pontos < fidelidade.minimoPontosResgate ? (
+        <p className="aviso-cadastro">
+          Dá para usar pontos como desconto a partir de{' '}
+          {fidelidade.minimoPontosResgate.toLocaleString('pt-BR')} pontos. Faltam{' '}
+          {(fidelidade.minimoPontosResgate - clienteFidelidade.pontos).toLocaleString('pt-BR')}{' '}
+          pontos.
+        </p>
+      ) : pedido?.pontosUsados ? (
         <div className="desconto-aplicado">
           <p className="desconto">
             {pedido.pontosUsados.toLocaleString('pt-BR')} pontos usados neste pedido

@@ -312,6 +312,48 @@ export function obterClienteDoPedido(pedido: Pedido): ClienteFidelidade | undefi
   return [...clientesFidelidade.values()].find((cliente) => cliente.id === pedido.clienteId);
 }
 
+// ---------- Reserva de pontos (Card B / US 37) ----------
+
+// Por quanto tempo os pontos escolhidos no carrinho ficam presos ao pedido. Renovado a
+// cada vez que o cliente escolhe os pontos e no pagamento.
+export const RESERVA_PONTOS_MINUTOS = 15;
+
+export function prazoReservaPontos(agora = Date.now()): string {
+  return new Date(agora + RESERVA_PONTOS_MINUTOS * 60_000).toISOString();
+}
+
+// Pontos que outros pedidos ainda em montagem deste cliente reservaram e que não
+// venceram. Pedido pago ou no caixa já tirou os pontos do saldo; cancelado não reserva.
+export function pontosReservadosEmOutrosPedidos(
+  clienteId: string,
+  pedidoId: string,
+  agora = Date.now(),
+): number {
+  let total = 0;
+  for (const outro of pedidos.values()) {
+    if (
+      outro.id !== pedidoId &&
+      outro.clienteId === clienteId &&
+      outro.status === 'em_montagem' &&
+      outro.pontosUsados &&
+      outro.reservaPontosAte &&
+      Date.parse(outro.reservaPontosAte) > agora
+    ) {
+      total += outro.pontosUsados;
+    }
+  }
+  return total;
+}
+
+// O que o cliente pode usar neste pedido: o saldo menos o que está reservado em outros.
+export function saldoDisponivel(
+  cliente: ClienteFidelidade,
+  pedidoId: string,
+  agora = Date.now(),
+): number {
+  return Math.max(cliente.pontos - pontosReservadosEmOutrosPedidos(cliente.id, pedidoId, agora), 0);
+}
+
 // ---------- Itens, combos e estoque ----------
 
 export function obterItem(id: string): ItemCardapio | undefined {
@@ -520,6 +562,9 @@ export function recalcularPedido(pedido: Pedido): void {
     ? Math.min(pedido.pontosUsados ?? 0, pontosParaCobrir(restante))
     : 0;
   pedido.pontosUsados = pontos > 0 ? pontos : undefined;
+  if (!pedido.pontosUsados) {
+    pedido.reservaPontosAte = undefined;
+  }
   pedido.descontoPontosCentavos = Math.min(pontosParaCentavos(pontos), restante);
 
   pedido.valorAPagarCentavos = restante - pedido.descontoPontosCentavos;

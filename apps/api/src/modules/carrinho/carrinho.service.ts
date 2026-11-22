@@ -7,6 +7,7 @@ import {
   itemSemEstoque,
   obterItem,
   obterOuCriarPedido,
+  pedidos,
   recalcularPedido,
 } from '../../db/memory-store';
 import { HttpError } from '../../errors';
@@ -128,4 +129,13 @@ export async function obterCarrinho(pedidoId: string): Promise<Pedido> {
     recalcularPedido(pedido);
   }
   return pedido;
+}
+
+// Card B / US 37: o cliente desistiu (voltou ao início do totem). O carrinho em montagem
+// é descartado e os pontos que ele reservava ficam livres na hora, sem esperar a reserva
+// vencer. Pedido já pago ou no caixa não muda, e chamar de novo não dá erro.
+export async function desistirDoPedido(pedidoId: string): Promise<void> {
+  if (pedidos.get(pedidoId)?.status === 'em_montagem') {
+    pedidos.delete(pedidoId);
+  }
 }

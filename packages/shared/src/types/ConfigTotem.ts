@@ -55,6 +55,9 @@ export interface ConfigFidelidade {
   acumuloHabilitado: boolean;
   percentualAcumulo: number; // % do valor pago que volta em pontos
   pontosPorReal: number; // equivalência: quantos pontos valem R$ 1,00
+  // Card B / US 37: saldo mínimo para o cliente poder usar pontos como desconto. Abaixo
+  // dele, o carrinho explica quanto falta em vez de oferecer o resgate.
+  minimoPontosResgate: number;
   // Desligado: pedido com cupom não pode usar pontos nem acumula pontos.
   combinaComCupom: boolean;
 }

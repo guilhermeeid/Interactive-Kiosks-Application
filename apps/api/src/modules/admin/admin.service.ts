@@ -287,6 +287,13 @@ export function validarConfig(entrada: Partial<AtualizarConfigBody> | undefined)
       acumuloHabilitado: booleano(fidelidade?.acumuloHabilitado, 'Acúmulo de pontos'),
       percentualAcumulo: numero(fidelidade?.percentualAcumulo, 'Percentual de acúmulo', 0, 100),
       pontosPorReal: inteiro(fidelidade?.pontosPorReal, 'Pontos por R$ 1,00', 1, 100000),
+      // Card B / US 37
+      minimoPontosResgate: inteiro(
+        fidelidade?.minimoPontosResgate,
+        'Saldo mínimo para usar pontos',
+        0,
+        10000000,
+      ),
       combinaComCupom: booleano(fidelidade?.combinaComCupom, 'Somar pontos com cupom'),
     },
     formasPagamento,

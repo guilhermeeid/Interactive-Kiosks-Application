@@ -131,6 +131,11 @@ describe('atualizarConfig', () => {
     const semEquivalencia = criarConfigPadrao();
     semEquivalencia.fidelidade.pontosPorReal = 0;
     expect(() => validarConfig(semEquivalencia)).toThrow(/Pontos por R\$ 1,00/);
+
+    // Card B / US 37
+    const minimoNegativo = criarConfigPadrao();
+    minimoNegativo.fidelidade.minimoPontosResgate = -1;
+    expect(() => validarConfig(minimoNegativo)).toThrow(/Saldo mínimo para usar pontos/);
   });
 
   // Item 1: até o dinheiro pode sair, mas alguma forma precisa ficar.

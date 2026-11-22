@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { ClienteFidelidade, Pedido } from '@totem/shared';
-import { obterCarrinho } from '../services/apiClient';
+import { desistirDoPedido, obterCarrinho } from '../services/apiClient';
 
 // Etapas do fluxo do totem: Início (publicidade, "Toque para começar") -> Fidelidade ->
 // Cardápio -> Carrinho (cupom e pontos) -> Pagamento (consumo e CPF na nota) ->
@@ -50,13 +50,16 @@ export function PedidoProvider({ children }: { children: ReactNode }) {
     });
   }, [recarregarPedido]);
 
-  // Volta para a tela inicial com um pedido novo, sem nada do cliente anterior.
+  // Volta para a tela inicial com um pedido novo, sem nada do cliente anterior. Se o
+  // pedido não foi pago, a API o descarta e solta os pontos reservados (Card B / US 37);
+  // pedido pago não muda. Falha de rede não impede o recomeço: a reserva vence sozinha.
   const reiniciarPedido = useCallback(() => {
+    desistirDoPedido(pedidoId).catch(() => undefined);
     setPedidoId(gerarPedidoId());
     setPedido(null);
     setClienteFidelidade(null);
     setEtapaAtual('inicio');
-  }, []);
+  }, [pedidoId]);
 
   const value: PedidoContextValue = {
     pedidoId,

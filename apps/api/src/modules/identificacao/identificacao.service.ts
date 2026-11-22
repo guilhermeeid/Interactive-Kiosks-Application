@@ -5,7 +5,9 @@ import {
   exigirPedidoEmMontagem,
   obterClienteDoPedido,
   obterOuCriarPedido,
+  prazoReservaPontos,
   recalcularPedido,
+  saldoDisponivel,
 } from '../../db/memory-store';
 import { HttpError } from '../../errors';
 import { exigirConsentimento } from '../consentimento/consentimento.service';
@@ -107,8 +109,12 @@ export async function informarCpfNota(body: InformarCpfNotaBody): Promise<Pedido
   return pedido;
 }
 
-// Define quantos pontos de fidelidade o cliente quer abater neste pedido (0 desfaz).
-// Os pontos só saem do saldo quando o pagamento é aprovado.
+const formatarPontos = (pontos: number) => pontos.toLocaleString('pt-BR');
+
+// Card B / US 37: define quantos pontos de fidelidade o cliente quer abater neste pedido
+// (0 desfaz). Os pontos ficam reservados para o pedido por RESERVA_PONTOS_MINUTOS: outro
+// pedido do mesmo cliente (outro totem) não pode usá-los nesse meio-tempo. Só saem do
+// saldo quando o pedido vai para o pagamento, e voltam se ele for recusado ou cancelado.
 export async function usarPontos(body: UsarPontosBody): Promise<Pedido> {
   const pedido = obterOuCriarPedido(body.pedidoId);
   exigirPedidoEmMontagem(pedido);
@@ -121,19 +127,37 @@ export async function usarPontos(body: UsarPontosBody): Promise<Pedido> {
     if (!cliente) {
       throw new HttpError(400, 'Informe um CPF cadastrado na fidelidade para usar pontos');
     }
+    if (pedido.cupomAplicado && !config.fidelidade.combinaComCupom) {
+      throw new HttpError(400, 'Pontos e cupom não podem ser usados no mesmo pedido');
+    }
+    const { minimoPontosResgate } = config.fidelidade;
+    if (cliente.pontos < minimoPontosResgate) {
+      throw new HttpError(
+        400,
+        `Para usar pontos é preciso ter pelo menos ${formatarPontos(minimoPontosResgate)} ` +
+          `pontos. Seu saldo é de ${formatarPontos(cliente.pontos)} pontos`,
+      );
+    }
     if (body.pontos > cliente.pontos) {
       throw new HttpError(
         400,
-        `Não é possível usar ${body.pontos.toLocaleString('pt-BR')} pontos: ` +
-          `seu saldo é de ${cliente.pontos.toLocaleString('pt-BR')} pontos`,
+        `Não é possível usar ${formatarPontos(body.pontos)} pontos: ` +
+          `seu saldo é de ${formatarPontos(cliente.pontos)} pontos`,
       );
     }
-    if (pedido.cupomAplicado && !config.fidelidade.combinaComCupom) {
-      throw new HttpError(400, 'Pontos e cupom não podem ser usados no mesmo pedido');
+    const disponivel = saldoDisponivel(cliente, pedido.id);
+    if (body.pontos > disponivel) {
+      throw new HttpError(
+        409,
+        `${formatarPontos(cliente.pontos - disponivel)} dos seus pontos estão reservados ` +
+          `em outro pedido em andamento. ` +
+          `Dá para usar até ${formatarPontos(disponivel)} pontos agora`,
+      );
     }
   }
 
   pedido.pontosUsados = body.pontos;
+  pedido.reservaPontosAte = body.pontos > 0 ? prazoReservaPontos() : undefined;
   recalcularPedido(pedido);
   return pedido;
 }

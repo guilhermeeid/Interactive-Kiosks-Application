@@ -42,6 +42,7 @@ export function criarConfigPadrao(): ConfigTotem {
       acumuloHabilitado: true,
       percentualAcumulo: 5,
       pontosPorReal: 100,
+      minimoPontosResgate: 100, // R$ 1,00
       combinaComCupom: true,
     },
     // Vale-alimentação vem desligado: é o cartão de supermercado; restaurante costuma

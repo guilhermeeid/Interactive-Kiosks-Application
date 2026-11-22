@@ -33,7 +33,13 @@ import { salvarImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
 import { problemaNoDesconto, situacaoCupom } from '../cupom/cupom.service';
 import { cpfValido, limparCpf } from '../identificacao/cpf';
-import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
+import type {
+  AtualizarConfigBody,
+  ClienteBody,
+  CupomBody,
+  EnviarImagemBody,
+  ProdutoBody,
+} from './admin.types';
 import {
   booleano,
   centavosOpcional,
@@ -130,7 +136,10 @@ export async function obterConfigAdmin(): Promise<ConfigTotem> {
   return configPosReinicio();
 }
 
-function validarCategorias(entrada: unknown): CategoriaCardapio[] {
+// Card E / US 33: categorias na ordem em que aparecem no totem, cada uma ativa ou
+// desativada. `confirmadas` são as que o Administrador confirmou desativar mesmo tendo
+// produtos.
+function validarCategorias(entrada: unknown, confirmadas: string[] = []): CategoriaCardapio[] {
   if (!Array.isArray(entrada) || entrada.length === 0) {
     throw new HttpError(400, 'O cardápio precisa de pelo menos uma categoria');
   }
@@ -148,7 +157,30 @@ function validarCategorias(entrada: unknown): CategoriaCardapio[] {
     icone: textoOpcional(categoria?.icone, 'Ícone da categoria', 8),
     iconeImagemUrl: imagemOpcional(categoria?.iconeImagemUrl, 'Ícone da categoria'),
     capaUrl: imagemOpcional(categoria?.capaUrl, 'Capa da categoria'),
+    // Sem a marca, a categoria fica ativa (formulários anteriores à US 33).
+    ativa: categoria?.ativa === undefined ? true : booleano(categoria.ativa, 'Categoria ativa'),
   }));
+
+  if (!categorias.some((categoria) => categoria.ativa)) {
+    throw new HttpError(400, 'Deixe pelo menos uma categoria ativa');
+  }
+
+  // Desativar uma categoria com produtos tira esses produtos do totem: só com
+  // confirmação explícita.
+  for (const categoria of categorias) {
+    const antes = atuais.find((atual) => atual.id === categoria.id);
+    if (categoria.ativa || !antes?.ativa || confirmadas.includes(categoria.id)) {
+      continue;
+    }
+    const produtos = produtosQueFicam().filter((item) => item.categoria === categoria.id).length;
+    if (produtos > 0) {
+      throw new HttpError(
+        409,
+        `A categoria "${categoria.nome}" tem ${produtos} produto(s), que vão sumir do totem. ` +
+          'Confirme a desativação.',
+      );
+    }
+  }
 
   const nomes = categorias.map((categoria) => categoria.nome.toLowerCase());
   if (new Set(nomes).size !== nomes.length) {
@@ -180,7 +212,7 @@ function validarCategorias(entrada: unknown): CategoriaCardapio[] {
   return categorias;
 }
 
-export function validarConfig(entrada: Partial<ConfigTotem> | undefined): ConfigTotem {
+export function validarConfig(entrada: Partial<AtualizarConfigBody> | undefined): ConfigTotem {
   const aparencia = entrada?.aparencia;
   const fidelidade = entrada?.fidelidade;
   const formas = entrada?.formasPagamento;
@@ -244,7 +276,10 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
         ),
       },
     },
-    categorias: validarCategorias(entrada?.categorias),
+    categorias: validarCategorias(
+      entrada?.categorias,
+      Array.isArray(entrada?.confirmarDesativacao) ? entrada.confirmarDesativacao : [],
+    ),
     posicaoCategorias,
     exibirTodos: booleano(entrada?.exibirTodos, 'Exibir "Todos"'),
     fidelidade: {
@@ -262,7 +297,7 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
 }
 
 // Fica pendente até o servidor reiniciar.
-export async function atualizarConfig(entrada: Partial<ConfigTotem>): Promise<ConfigTotem> {
+export async function atualizarConfig(entrada: Partial<AtualizarConfigBody>): Promise<ConfigTotem> {
   rascunho.config = validarConfig(entrada);
   persistirRascunho();
   return rascunho.config;

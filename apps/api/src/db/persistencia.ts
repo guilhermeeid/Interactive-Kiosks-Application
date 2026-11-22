@@ -17,6 +17,7 @@ import type {
   ItemCardapio,
   Pedido,
   RegistroConsentimento,
+  UsuarioPainel,
 } from '@totem/shared';
 import { HttpError } from '../errors';
 
@@ -36,12 +37,20 @@ const DIRETORIO_IMAGENS = join(DIRETORIO, 'imagens');
 // Os testes rodam só em memória, para não ler nem sobrescrever os dados reais.
 const ATIVA = !process.env.VITEST;
 
+// Card E / US 35: usuário do painel como fica guardado. A senha nunca é gravada, só o
+// hash bcrypt dela; o bloqueio por senhas erradas fica só em memória (ver
+// modules/acesso).
+export interface UsuarioPainelSalvo extends Omit<UsuarioPainel, 'bloqueadoAte'> {
+  senhaHash: string;
+}
+
 export interface EstadoSalvo {
   config: ConfigTotem;
   itensCardapio: ItemCardapio[];
   cupons: Cupom[];
   clientesFidelidade: ClienteFidelidade[];
   pedidos: Pedido[];
+  usuariosPainel: UsuarioPainelSalvo[];
 }
 
 export function carregarEstado(): Partial<EstadoSalvo> | null {

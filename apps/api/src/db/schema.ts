@@ -20,7 +20,18 @@ export interface CategoriaCardapioRow {
   icone: string | null;
   icone_imagem_url: string | null;
   capa_url: string | null;
-  ordem: number;
+  ordem: number; // Card E / US 33: ordem das abas no totem
+  ativa: boolean; // Card E / US 33: desativada some do totem sem apagar nada
+}
+
+// Card E / US 35: usuários do painel. Só o hash bcrypt da senha é guardado.
+export interface UsuarioPainelRow {
+  id: string;
+  login: string;
+  nome: string;
+  papel: 'administrador' | 'funcionario';
+  senha_hash: string;
+  criado_em: string;
 }
 
 // Item 7: pendências do Administrador, aplicadas quando o servidor reinicia.

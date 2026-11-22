@@ -30,10 +30,10 @@ export function criarConfigPadrao(): ConfigTotem {
       publicidade: { imagens: [], segundosPorImagem: 6 },
     },
     categorias: [
-      { id: 'lanches', nome: 'Lanches', icone: '🍔' },
-      { id: 'acompanhamentos', nome: 'Acompanhamentos', icone: '🍟' },
-      { id: 'bebidas', nome: 'Bebidas', icone: '🥤' },
-      { id: 'sobremesas', nome: 'Sobremesas', icone: '🍨' },
+      { id: 'lanches', nome: 'Lanches', icone: '🍔', ativa: true },
+      { id: 'acompanhamentos', nome: 'Acompanhamentos', icone: '🍟', ativa: true },
+      { id: 'bebidas', nome: 'Bebidas', icone: '🥤', ativa: true },
+      { id: 'sobremesas', nome: 'Sobremesas', icone: '🍨', ativa: true },
     ],
     posicaoCategorias: 'esquerda',
     exibirTodos: true,
@@ -87,6 +87,11 @@ export function mesclarConfig(salva?: Partial<ConfigTotem>): ConfigTotem {
       paginas,
       publicidade: { ...padrao.aparencia.publicidade, ...salva.aparencia?.publicidade },
     },
+    // Categorias salvas antes da US 33 não tinham a marca de ativa: todas estavam ativas.
+    categorias: (salva.categorias ?? padrao.categorias).map((categoria) => ({
+      ...categoria,
+      ativa: categoria.ativa ?? true,
+    })),
     fidelidade: { ...padrao.fidelidade, ...salva.fidelidade },
     formasPagamento: { ...padrao.formasPagamento, ...salva.formasPagamento },
     consumo: { ...padrao.consumo, ...salva.consumo },

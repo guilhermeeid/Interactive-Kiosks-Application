@@ -1,5 +1,6 @@
 import type { ItemCardapio, PedidoAguardandoRetirada } from '@totem/shared';
 import {
+  categoriaAtiva,
   comprovantes,
   itemDisponivel,
   itensCardapio,
@@ -21,10 +22,15 @@ import { cancelarNoCaixa, receberNoCaixa } from '../pagamento/pagamento.service'
 
 export type ProdutoAoVivo = ItemCardapio & { disponivelNoTotem: boolean };
 
-// Produtos como estão em vigor agora. `disponivelNoTotem` considera estoque e, nos
-// combos, os itens que os compõem (um combo esgota junto com qualquer item dele).
+// Card E / US 33: item de categoria desativada também não aparece no totem.
+function disponivelNoTotem(item: ItemCardapio): boolean {
+  return itemDisponivel(item) && categoriaAtiva(item.categoria);
+}
+
+// Produtos como estão em vigor agora. `disponivelNoTotem` considera estoque, a categoria
+// e, nos combos, os itens que os compõem (um combo esgota junto com qualquer item dele).
 export async function listarProdutosAoVivo(): Promise<ProdutoAoVivo[]> {
-  return itensCardapio.map((item) => ({ ...item, disponivelNoTotem: itemDisponivel(item) }));
+  return itensCardapio.map((item) => ({ ...item, disponivelNoTotem: disponivelNoTotem(item) }));
 }
 
 export async function atualizarProdutoAoVivo(
@@ -60,7 +66,7 @@ export async function atualizarProdutoAoVivo(
     }
   }
   persistir();
-  return { ...item, disponivelNoTotem: itemDisponivel(item) };
+  return { ...item, disponivelNoTotem: disponivelNoTotem(item) };
 }
 
 // ---------- Pedidos: caixa e balcão ----------

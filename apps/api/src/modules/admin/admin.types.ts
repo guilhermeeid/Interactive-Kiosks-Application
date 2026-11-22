@@ -1,7 +1,17 @@
-import type { ComponenteCombo, RestricaoCupom, TipoDescontoCupom } from '@totem/shared';
+import type {
+  ComponenteCombo,
+  ConfigTotem,
+  RestricaoCupom,
+  TipoDescontoCupom,
+} from '@totem/shared';
 
 // DTOs da área restrita. Campos opcionais chegam como `null` quando o administrador os
 // deixa em branco (JSON não transporta `undefined`).
+
+// A configuração inteira. Card E / US 33: desativar uma categoria que tem produtos exige
+// confirmação explícita — o id dela vai em `confirmarDesativacao`.
+export type AtualizarConfigBody = ConfigTotem & { confirmarDesativacao?: string[] };
+
 export interface ProdutoBody {
   nome: string;
   descricao: string;

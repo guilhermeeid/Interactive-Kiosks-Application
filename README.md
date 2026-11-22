@@ -40,8 +40,8 @@ Variáveis disponíveis:
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | `infra/docker-compose.yml` | Credenciais e porta do Postgres local |
 | `DATABASE_URL` | `apps/api` | String de conexão do backend com o Postgres |
 | `API_PORT` | `apps/api` | Porta HTTP do backend Fastify (padrão `3333`) |
-| `ADMIN_PIN` | `apps/api` | PIN do modo Administrador da [área restrita](#área-restrita-administrador-e-funcionário) (padrão `1234`, só para desenvolvimento) |
-| `FUNCIONARIO_PIN` | `apps/api` | PIN do modo Funcionário da área restrita (padrão `0000`, só para desenvolvimento) |
+| `ADMIN_SENHA_INICIAL` | `apps/api` | Senha do usuário `admin` (perfil Administrador) criado na primeira subida da API, sem nenhum usuário da [área restrita](#área-restrita-administrador-e-funcionário) (padrão `admin1234`, só para desenvolvimento) |
+| `FUNCIONARIO_SENHA_INICIAL` | `apps/api` | Senha do usuário `funcionario` (perfil Funcionário) criado na primeira subida (padrão `func1234`, só para desenvolvimento) |
 | `DATA_DIR` | `apps/api` | Pasta onde a API grava a configuração do administrador e as imagens (padrão `apps/api/data`) |
 | `VITE_API_URL` | `apps/totem` | URL base da API consumida pelo frontend (padrão: porta `3333` da máquina que serviu a página) |
 
@@ -115,9 +115,14 @@ O totem parado na Tela 0 se recarrega sozinho quando o servidor reinicia, para p
 
 ## Área restrita: Administrador e Funcionário
 
-Fica em `http://localhost:5173/admin` (mesmo endereço do totem, com `/admin`). O PIN digitado define o modo: `ADMIN_PIN` entra como Administrador e `FUNCIONARIO_PIN` como Funcionário (sem as variáveis, `1234` e `0000`, e a API avisa no log). No PowerShell: `$env:ADMIN_PIN = '482913'; $env:FUNCIONARIO_PIN = '716204'; npm run dev:api`. É uma trava simples, não um login com usuários.
+Fica em `http://localhost:5173/admin` (mesmo endereço do totem, com `/admin`). Cada pessoa entra com o **próprio usuário e senha**, e o **perfil** do usuário (Administrador ou Funcionário) define o que ela pode fazer — a API recusa (403) o que o perfil não permite.
 
-| Modo | Quando vale | O que muda |
+- **Primeira subida:** sem nenhum usuário cadastrado, a API cria `admin` (Administrador) e `funcionario` (Funcionário) com as senhas de `ADMIN_SENHA_INICIAL` e `FUNCIONARIO_SENHA_INICIAL` (sem as variáveis, `admin1234` e `func1234`, e a API avisa no log). No PowerShell: `$env:ADMIN_SENHA_INICIAL = 'uma-senha-forte'; npm run dev:api`. Depois, troque as senhas e crie os demais usuários na aba **Usuários**.
+- **Senha:** pelo menos 8 caracteres, guardada só como hash bcrypt (nunca a senha em si).
+- **Bloqueio:** 5 senhas erradas seguidas bloqueiam aquele usuário por 15 minutos, mesmo para a senha certa. O Administrador pode desbloquear antes, na aba Usuários.
+- **Sessão:** termina sozinha depois de **30 minutos sem ninguém mexer na tela**, ao sair, ao trocar a senha do usuário, ao removê-lo e quando o servidor reinicia. A atualização automática da lista de pedidos não conta como uso.
+
+| Perfil / modo | Quando vale | O que muda |
 |---|---|---|
 | Administrador | **Quando o servidor reiniciar.** O que ele salva fica pendente (selo "pendente" em cada item e uma faixa com o resumo, com "Descartar pendências") | Tudo: aparência, cardápio, combos, fidelidade, pagamento, cupons, endereço dos termos. Pode alternar para o modo Funcionário |
 | Funcionário | **Na hora** (os totens veem em até 30 segundos; a API já cobra o preço novo) | Marca item como esgotado (sem remover), troca preço, foto e descrição; recebe ou cancela pedidos em dinheiro no caixa; confirma a entrega no balcão |
@@ -127,14 +132,16 @@ Abas do Administrador:
 | Aba | O que define |
 |---|---|
 | Aparência | Nome e frase, logotipo (emoji ou imagem), cores (as demais calculadas por contraste), nome e descrição de cada tela, publicidade da Tela 0 (até 10 imagens de pé e segundos por imagem), fontes (salvas, ainda sem efeito) |
-| Cardápio | Categorias (nome, ícone em emoji ou imagem, foto de capa, ordem), posição das categorias (topo, esquerda ou direita), aba "Todos", produtos e combos |
+| Cardápio | Categorias (nome, ícone em emoji ou imagem, foto de capa, ordem — arrastando pela alça ⠿ ou com ↑/↓ —, ativa ou desativada), posição das categorias (topo, esquerda ou direita), aba "Todos", produtos e combos |
 | Fidelidade | Programa ligado ou desligado, acúmulo e seu percentual, quantos pontos valem R$ 1,00, se pontos somam com cupom; clientes por CPF (cadastro vale na hora) e o QR Code do cartão de cada um |
 | Pagamento | Crédito, débito, Pix, vale-refeição, vale-alimentação e dinheiro, cada um ligado ou desligado (pelo menos um); "Para comer aqui" e "Para levar" (pelo menos um) |
 | Cupons | Aceitar cupons ou não; cada cupom com desconto, validade, usos, para que vale (pedido inteiro, alguns itens ou algumas categorias), pedido mínimo e teto do percentual; QR Code de cada cupom |
 | Privacidade | Endereço público dos Termos e Condições (o QR Code do totem leva a ele), o termo exibido e a auditoria do consentimento |
+| Usuários | Quem entra no painel: nome, usuário, perfil; criar, trocar senha, desbloquear e remover (ninguém remove a si mesmo). **Vale na hora**, sem esperar o reinício |
 
 Regras que valem a pena saber:
 
+- **Categoria desativada** (US 33) some do totem junto com os produtos dela, sem apagar nada, quando o servidor reiniciar; reativar traz tudo de volta. Desativar uma categoria que tem produtos pede confirmação (a API também a exige), e pelo menos uma categoria fica ativa. Um combo de categoria ativa continua à venda mesmo que um item dele seja de categoria desativada.
 - **Esgotado vale na hora**, mesmo antes de a tela dos totens se atualizar: a API recusa adicionar o item e recusa pagar um carrinho que já o tinha.
 - **Quantidade à venda** é opcional. Com ela, o item esgota sozinho quando as unidades acabam (a baixa acontece no pagamento) e o carrinho não passa do que resta.
 - **Combo** junta itens já cadastrados, cada um com sua quantidade, por um preço próprio. Não tem quantidade própria: esgota assim que qualquer item dele acaba, e o estoque é conferido somando o que o carrinho inteiro usa de cada item. Um item que está num combo não pode ser removido (nem virar combo) antes de sair dele.
@@ -143,7 +150,7 @@ Regras que valem a pena saber:
 - **Dinheiro**: o totem não recebe cédulas. O pedido vai para o caixa com o número de três dígitos, estoque, cupom e pontos reservados. O funcionário confere o CPF da nota (mascarado), recebe e a nota é emitida para impressão; os pontos entram nessa hora. Cancelar devolve tudo.
 - **Vale-refeição e vale-alimentação** são formas de pagamento próprias (códigos 11 e 10 na NFC-e), não crédito nem débito, e precisam ser habilitados na credenciadora. Pela Lei 14.442/2022 o vale-alimentação é para gêneros alimentícios (mercados), por isso vem desligado.
 - **O totem não cadastra clientes de fidelidade.** Um CPF válido que não está na lista é avisado de que não tem cadastro e segue sem fidelidade.
-- **Os dados ficam em `apps/api/data`** (`estado.json`, `rascunho.json` com as pendências, `imagens/` e `auditoria-consentimento.jsonl`), fora do git. Apagar a pasta devolve o totem à configuração de fábrica — e apaga a auditoria.
+- **Os dados ficam em `apps/api/data`** (`estado.json` — inclusive os usuários do painel, com a senha só em hash —, `rascunho.json` com as pendências, `imagens/` e `auditoria-consentimento.jsonl`), fora do git. Apagar a pasta devolve o totem à configuração de fábrica — e apaga a auditoria e os usuários (na próxima subida, `admin` e `funcionario` são criados de novo).
 
 ## Privacidade (LGPD)
 
@@ -194,6 +201,8 @@ Pontos de atenção LGPD (CPF, e-mail, telefone, número de fidelidade) estão s
 | — | Tela inicial e publicidade | [Inicio](apps/totem/src/screens/Inicio) | [admin](apps/api/src/modules/admin) (configuração) |
 | — | Administração do totem | [Admin](apps/totem/src/screens/Admin) | [admin](apps/api/src/modules/admin) |
 | — | Caixa e balcão (modo Funcionário) | [Admin](apps/totem/src/screens/Admin) | [funcionario](apps/api/src/modules/funcionario) |
+| 7. Painel Admin e Operação | US 35 Login do painel com perfis (Card E) | [Admin](apps/totem/src/screens/Admin) (entrada e aba Usuários) | [acesso](apps/api/src/modules/acesso) |
+| 1. Cardápio Digital e Carrinho | US 33 Gerenciar categorias (Card E) | [Admin](apps/totem/src/screens/Admin) (aba Cardápio) e [Cardapio](apps/totem/src/screens/Cardapio) | [admin](apps/api/src/modules/admin) e [cardapio](apps/api/src/modules/cardapio) |
 | — | Consentimento LGPD | [Fidelidade](apps/totem/src/screens/Fidelidade), [Pagamento](apps/totem/src/screens/Pagamento) e [Comprovante](apps/totem/src/screens/Comprovante) | [consentimento](apps/api/src/modules/consentimento) |
 
 ## Estrutura do monorepo

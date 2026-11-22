@@ -22,6 +22,7 @@ import {
   salvarRascunho,
   type PendenciasLista,
   type RascunhoSalvo,
+  type UsuarioPainelSalvo,
 } from './persistencia';
 
 // Armazenamento em memória usado como substituto temporário do Postgres, para o MVP
@@ -98,6 +99,13 @@ export const clientesFidelidade = new Map<string, ClienteFidelidade>(
 
 export const comprovantes = new Map<string, Comprovante>();
 
+// Card E / US 35: usuários do painel, por id. Mudam na hora (não passam pelas pendências
+// do Administrador). Sem nenhum salvo, o servidor cria os iniciais ao subir (ver
+// modules/acesso, `criarUsuariosIniciais`).
+export const usuariosPainel = new Map<string, UsuarioPainelSalvo>(
+  (salvo?.usuariosPainel ?? []).map((usuario) => [usuario.id, usuario]),
+);
+
 export const cupons = new Map<string, Cupom>(
   (
     salvo?.cupons ?? [
@@ -143,6 +151,7 @@ export function persistir(): void {
     cupons: [...cupons.values()],
     clientesFidelidade: [...clientesFidelidade.values()],
     pedidos: [...pedidos.values()].filter(pedidoAguardaRetirada),
+    usuariosPainel: [...usuariosPainel.values()],
   });
 }
 
@@ -357,6 +366,14 @@ export function estoqueEfetivo(item: ItemCardapio): number | undefined {
     }
   }
   return maximo;
+}
+
+// Card E / US 33: item de categoria desativada some do totem — não é listado nem pode
+// entrar no carrinho. Fica separado de `itemDisponivel` de propósito: um combo de uma
+// categoria ativa continua à venda mesmo que um item dele seja de categoria desativada
+// (ex.: "Bebidas" fora do cardápio avulso, mas o refrigerante ainda vem no combo).
+export function categoriaAtiva(categoriaId: string): boolean {
+  return config.categorias.find((categoria) => categoria.id === categoriaId)?.ativa !== false;
 }
 
 // US 26 / US 34: um item pode ser comprado se está disponível e, com controle de

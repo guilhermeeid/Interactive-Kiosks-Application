@@ -6,6 +6,7 @@ import type {
 } from '@totem/shared';
 import type { PagamentoGateway } from '../../integrations/gateway-pagamento';
 import {
+  categoriaAtiva,
   config,
   cupons,
   demandaPorItem,
@@ -48,7 +49,7 @@ function definirConsumo(consumo: unknown): ConsumoPedido {
 function revalidarPedido(pedido: Pedido): void {
   for (const linha of pedido.itens) {
     const item = obterItem(linha.itemCardapioId);
-    if (!item || !itemDisponivel(item)) {
+    if (!item || !itemDisponivel(item) || !categoriaAtiva(item.categoria)) {
       throw new HttpError(409, `${linha.nome} não está mais disponível. Remova-o do carrinho.`);
     }
   }

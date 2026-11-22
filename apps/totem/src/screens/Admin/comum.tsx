@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import type { ConfigTotem, MudancaPendente } from '@totem/shared';
+import type { ConfigTotem, MudancaPendente, UsuarioPainel } from '@totem/shared';
 import type { AdminApi, FuncionarioApi } from '../../services/adminApi';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { PRAZO_ATUALIZACAO_CARDAPIO } from '../../utils/atualizacaoCardapio';
@@ -10,11 +10,14 @@ import { redimensionarImagem } from '../../utils/imagem';
 // Abas do modo Administrador.
 export interface PropsAba {
   api: AdminApi;
+  // US 35: quem está logado.
+  usuario: UsuarioPainel;
   // A configuração como vai ficar depois do reinício (com o que estiver pendente).
   config: ConfigTotem;
   // Salva a configuração inteira (pendente) e devolve a versão gravada (com ids e
-  // textos já normalizados pelo servidor).
-  salvarConfig: (config: ConfigTotem) => Promise<ConfigTotem>;
+  // textos já normalizados pelo servidor). US 33: `confirmarDesativacao` leva as
+  // categorias com produtos que o Administrador confirmou desativar.
+  salvarConfig: (config: ConfigTotem, confirmarDesativacao?: string[]) => Promise<ConfigTotem>;
   // Avisa o painel que algo foi salvo, para atualizar a faixa de pendências.
   aoSalvar: () => void;
 }

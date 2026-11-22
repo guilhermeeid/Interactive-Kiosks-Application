@@ -42,6 +42,9 @@ export interface CategoriaCardapio {
   icone?: string; // emoji da aba e dos itens sem foto/ícone próprio
   iconeImagemUrl?: string; // imagem pequena no lugar do emoji, na aba
   capaUrl?: string; // foto de capa, exibida acima dos itens quando a categoria está aberta
+  // Card E / US 33: desativada, a categoria e os itens dela somem do totem (aba, lista e
+  // carrinho), sem apagar nada; reativar traz tudo de volta.
+  ativa: boolean;
 }
 
 // Onde ficam as abas de categoria na tela do cardápio.
@@ -68,7 +71,7 @@ export interface OpcoesConsumo {
 
 export interface ConfigTotem {
   aparencia: AparenciaTotem;
-  categorias: CategoriaCardapio[]; // na ordem em que aparecem no totem
+  categorias: CategoriaCardapio[]; // na ordem em que aparecem no totem (US 33)
   posicaoCategorias: PosicaoCategorias;
   exibirTodos: boolean; // aba "Todos", com os itens de todas as categorias
   fidelidade: ConfigFidelidade;

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ConfigTotem } from '@totem/shared';
 import { afterEach, describe, expect, it } from 'vitest';
-import { criarConfigPadrao } from '../../db/config-padrao';
+import { criarConfigPadrao, mesclarConfig } from '../../db/config-padrao';
 import {
   aplicarRascunho,
   clientesFidelidade,
@@ -189,10 +189,15 @@ describe('atualizarConfig', () => {
     const nova = criarConfigPadrao();
     const capa = `/imagens/${randomUUID()}.jpg`;
     nova.categorias = [
-      { id: 'bebidas', nome: 'Para beber', capaUrl: capa },
-      { id: 'lanches', nome: 'Lanches', iconeImagemUrl: `/imagens/${randomUUID()}.png` },
-      { id: 'acompanhamentos', nome: 'Acompanhamentos' },
-      { id: 'qualquer-coisa', nome: 'Combos' },
+      { id: 'bebidas', nome: 'Para beber', capaUrl: capa, ativa: true },
+      {
+        id: 'lanches',
+        nome: 'Lanches',
+        iconeImagemUrl: `/imagens/${randomUUID()}.png`,
+        ativa: true,
+      },
+      { id: 'acompanhamentos', nome: 'Acompanhamentos', ativa: true },
+      { id: 'qualquer-coisa', nome: 'Combos', ativa: true },
     ];
     const { categorias } = await atualizarConfig(nova);
     expect(categorias[0]).toMatchObject({ id: 'bebidas', nome: 'Para beber', capaUrl: capa });
@@ -218,6 +223,79 @@ describe('atualizarConfig', () => {
     const semSobremesas = criarConfigPadrao();
     semSobremesas.categorias = semSobremesas.categorias.filter((c) => c.id !== 'sobremesas');
     expect(() => validarConfig(semSobremesas)).toThrow(/"Sobremesas" ainda tem 1 produto/);
+  });
+});
+
+// Card E / US 33
+describe('categorias ativas e desativadas', () => {
+  const comCategoriaDesativada = (id: string): ConfigTotem => {
+    const nova = criarConfigPadrao();
+    nova.categorias = nova.categorias.map((c) => (c.id === id ? { ...c, ativa: false } : c));
+    return nova;
+  };
+
+  it('desativar categoria com produtos exige confirmação explícita', async () => {
+    await expect(atualizarConfig(comCategoriaDesativada('bebidas'))).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/"Bebidas" tem 2 produto\(s\).*Confirme/),
+    });
+    expect(await obterPendencias()).toMatchObject({ config: false });
+
+    const salva = await atualizarConfig({
+      ...comCategoriaDesativada('bebidas'),
+      confirmarDesativacao: ['bebidas'],
+    });
+    expect(salva.categorias.find((c) => c.id === 'bebidas')?.ativa).toBe(false);
+    expect(salva).not.toHaveProperty('confirmarDesativacao');
+  });
+
+  it('categoria sem produtos é desativada sem pedir confirmação', async () => {
+    const salva = await atualizarConfig(comCategoriaDesativada('sobremesas'));
+    expect(salva.categorias.find((c) => c.id === 'sobremesas')?.ativa).toBe(false);
+  });
+
+  it('exige pelo menos uma categoria ativa', () => {
+    const nova = criarConfigPadrao();
+    nova.categorias = nova.categorias.map((c) => ({ ...c, ativa: false }));
+    expect(() =>
+      validarConfig({ ...nova, confirmarDesativacao: nova.categorias.map((c) => c.id) }),
+    ).toThrow(/pelo menos uma categoria ativa/);
+  });
+
+  it('no reinício a categoria e seus itens somem do totem, sem apagar nada; reativar traz de volta', async () => {
+    await atualizarConfig({
+      ...comCategoriaDesativada('bebidas'),
+      confirmarDesativacao: ['bebidas'],
+    });
+    expect(await noCardapio('refrigerante-lata')).toBeDefined(); // ainda não reiniciou
+
+    reiniciarServidor();
+    expect(await noCardapio('refrigerante-lata')).toBeUndefined();
+    expect(await listarCardapio({ categoria: 'bebidas' })).toEqual([]);
+    await expect(
+      adicionarItem({
+        pedidoId: randomUUID(),
+        item: { itemCardapioId: 'refrigerante-lata', nome: 'Refrigerante (lata)', quantidade: 1 },
+      }),
+    ).rejects.toThrow(/indisponível/);
+    expect((await listarProdutos()).some((p) => p.id === 'refrigerante-lata')).toBe(true);
+
+    await atualizarConfig(criarConfigPadrao());
+    reiniciarServidor();
+    expect(await noCardapio('refrigerante-lata')).toBeDefined();
+  });
+
+  it('configuração salva antes da US 33 (sem a marca) volta com todas as categorias ativas', () => {
+    const antiga = criarConfigPadrao() as unknown as {
+      categorias: Record<string, unknown>[];
+    };
+    antiga.categorias = antiga.categorias.map((categoria) => {
+      const semMarca = { ...categoria };
+      delete semMarca.ativa;
+      return semMarca;
+    });
+    const mesclada = mesclarConfig(antiga as unknown as ConfigTotem);
+    expect(mesclada.categorias.every((categoria) => categoria.ativa)).toBe(true);
   });
 });
 

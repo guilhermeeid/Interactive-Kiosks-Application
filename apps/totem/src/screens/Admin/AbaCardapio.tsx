@@ -44,35 +44,97 @@ export function AbaCardapio(props: PropsAba) {
 
 // ---------- Categorias ----------
 
+// Muda a categoria `id` para a posição `destino`, empurrando as outras.
+function moverPara(
+  categorias: CategoriaCardapio[],
+  id: string,
+  destino: number,
+): CategoriaCardapio[] {
+  const origem = categorias.findIndex((categoria) => categoria.id === id);
+  if (origem === -1 || destino < 0 || destino >= categorias.length || origem === destino) {
+    return categorias;
+  }
+  const copia = [...categorias];
+  const [movida] = copia.splice(origem, 1);
+  copia.splice(destino, 0, movida);
+  return copia;
+}
+
+// Card E / US 33: criar, reordenar (arrastando pela alça ou com ↑/↓) e desativar
+// categorias. A ordem daqui é a ordem das abas no totem.
 function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
   const [categorias, setCategorias] = useState<CategoriaCardapio[]>(config.categorias);
   const [exibirTodos, setExibirTodos] = useState(config.exibirTodos);
   const [posicao, setPosicao] = useState<PosicaoCategorias>(config.posicaoCategorias);
+  // Quantos produtos (que continuam depois do reinício) cada categoria tem.
+  const [produtosPorCategoria, setProdutosPorCategoria] = useState<Map<string, number>>(new Map());
+  // Categorias com produtos que o Administrador confirmou desativar.
+  const [confirmadas, setConfirmadas] = useState<string[]>([]);
+  // Categoria sendo arrastada pela alça.
+  const [arrastando, setArrastando] = useState<string | null>(null);
   const { retorno, ocupado, executar } = useAcao();
   // Categorias novas ganham um id provisório; o servidor gera o definitivo ao salvar.
   const proximaNova = useRef(1);
+
+  useEffect(() => {
+    api
+      .listarProdutos()
+      .then((produtos) => {
+        const contagem = new Map<string, number>();
+        for (const produto of produtos) {
+          if (produto.pendente !== 'removido') {
+            contagem.set(produto.categoria, (contagem.get(produto.categoria) ?? 0) + 1);
+          }
+        }
+        setProdutosPorCategoria(contagem);
+      })
+      .catch(() => undefined);
+  }, [api]);
 
   const alterar = (indice: number, parcial: Partial<CategoriaCardapio>) =>
     setCategorias((atuais) => atuais.map((c, i) => (i === indice ? { ...c, ...parcial } : c)));
 
   const mover = (indice: number, passo: -1 | 1) =>
-    setCategorias((atuais) => {
-      const destino = indice + passo;
-      if (destino < 0 || destino >= atuais.length) return atuais;
-      const copia = [...atuais];
-      [copia[indice], copia[destino]] = [copia[destino], copia[indice]];
-      return copia;
-    });
+    setCategorias((atuais) => moverPara(atuais, atuais[indice].id, indice + passo));
+
+  // Desativar uma categoria com produtos pede confirmação explícita (a API também exige).
+  function mudarAtiva(indice: number, ativa: boolean) {
+    const categoria = categorias[indice];
+    const produtos = produtosPorCategoria.get(categoria.id) ?? 0;
+    if (!ativa && produtos > 0) {
+      const confirmou = window.confirm(
+        `A categoria "${categoria.nome}" tem ${produtos} produto(s). Desativada, ela e os ` +
+          'produtos dela somem do totem (nada é apagado; reativar traz tudo de volta). Desativar?',
+      );
+      if (!confirmou) return;
+      setConfirmadas((atuais) => [...atuais, categoria.id]);
+    }
+    alterar(indice, { ativa });
+  }
+
+  // Arrastar pela alça: a categoria troca de lugar com a linha que está sob o dedo ou o
+  // mouse. Usa eventos de ponteiro, que funcionam igual no toque e no mouse.
+  function arrastarSobre(id: string, x: number, y: number) {
+    const linha = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-indice-categoria]');
+    const destino = Number(linha?.dataset.indiceCategoria);
+    if (linha && Number.isInteger(destino)) {
+      setCategorias((atuais) => moverPara(atuais, id, destino));
+    }
+  }
 
   const salvar = () =>
     executar(async () => {
-      const salva = await salvarConfig({
-        ...config,
-        categorias,
-        exibirTodos,
-        posicaoCategorias: posicao,
-      });
+      const salva = await salvarConfig(
+        {
+          ...config,
+          categorias,
+          exibirTodos,
+          posicaoCategorias: posicao,
+        },
+        confirmadas,
+      );
       setCategorias(salva.categorias);
+      setConfirmadas([]);
     }, `Categorias salvas. ${SALVO_PENDENTE}`);
 
   return (
@@ -105,12 +167,41 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
       </fieldset>
 
       <p className="admin-dica">
-        A ordem daqui é a ordem das abas no totem. Item 8: o ícone aparece na aba; a capa aparece no
-        alto da lista quando a categoria é escolhida.
+        A ordem daqui é a ordem das abas no totem: arraste pela alça ⠿ (ou use ↑ e ↓). Uma categoria
+        desativada some do totem com os produtos dela, sem apagar nada. Item 8: o ícone aparece na
+        aba; a capa aparece no alto da lista quando a categoria é escolhida.
       </p>
       <div className="admin-lista">
         {categorias.map((categoria, indice) => (
-          <div key={categoria.id} className="admin-linha admin-linha--categoria">
+          <div
+            key={categoria.id}
+            data-indice-categoria={indice}
+            className={[
+              'admin-linha admin-linha--categoria',
+              arrastando === categoria.id && 'admin-linha--arrastando',
+              !categoria.ativa && 'admin-linha--desativada',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            <button
+              type="button"
+              className="admin-alca"
+              aria-label={`Arrastar ${categoria.nome || 'categoria'} para mudar a ordem`}
+              onPointerDown={(evento) => {
+                evento.currentTarget.setPointerCapture(evento.pointerId);
+                setArrastando(categoria.id);
+              }}
+              onPointerMove={(evento) => {
+                if (arrastando === categoria.id) {
+                  arrastarSobre(categoria.id, evento.clientX, evento.clientY);
+                }
+              }}
+              onPointerUp={() => setArrastando(null)}
+              onPointerCancel={() => setArrastando(null)}
+            >
+              ⠿
+            </button>
             <span className="admin-miniatura" aria-hidden="true">
               <IconeCategoria categoria={categoria} />
             </span>
@@ -131,6 +222,12 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
                   onChange={(evento) => alterar(indice, { icone: evento.target.value })}
                 />
               </Campo>
+              <Opcao
+                rotulo="Ativa no totem"
+                dica={`${produtosPorCategoria.get(categoria.id) ?? 0} produto(s) nesta categoria.`}
+                marcado={categoria.ativa}
+                aoMudar={(ativa) => mudarAtiva(indice, ativa)}
+              />
             </div>
             <div className="admin-linha__acoes">
               <BotaoTouch
@@ -197,7 +294,7 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
         onClick={() =>
           setCategorias((atuais) => [
             ...atuais,
-            { id: `nova-${proximaNova.current++}`, nome: '', icone: '' },
+            { id: `nova-${proximaNova.current++}`, nome: '', icone: '', ativa: true },
           ])
         }
       >
@@ -458,6 +555,7 @@ function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
                 {categorias.map((categoria) => (
                   <option key={categoria.id} value={categoria.id}>
                     {categoria.nome}
+                    {!categoria.ativa && ' (desativada)'}
                   </option>
                 ))}
               </select>

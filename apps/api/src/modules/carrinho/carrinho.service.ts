@@ -1,5 +1,6 @@
 import type { ItemPedido, Pedido } from '@totem/shared';
 import {
+  categoriaAtiva,
   demandaPorItem,
   exigirPedidoEmMontagem,
   itemDisponivel,
@@ -51,7 +52,8 @@ export async function adicionarItem(body: AdicionarItemCarrinhoBody): Promise<Pe
   if (!itemCardapio) {
     throw new HttpError(400, `Item de cardápio "${body.item.itemCardapioId}" não encontrado`);
   }
-  if (!itemDisponivel(itemCardapio)) {
+  // Card E / US 33: item de categoria desativada não está no cardápio.
+  if (!itemDisponivel(itemCardapio) || !categoriaAtiva(itemCardapio.categoria)) {
     throw new HttpError(400, 'Item indisponível no momento');
   }
 
@@ -92,7 +94,11 @@ export async function atualizarItem(body: AtualizarItemCarrinhoBody): Promise<Pe
     // Aumentar a quantidade passa pelas mesmas regras de adicionar (US 26).
     if (body.quantidade > item.quantidade) {
       const itemCardapio = obterItem(body.itemCardapioId);
-      if (!itemCardapio || !itemDisponivel(itemCardapio)) {
+      if (
+        !itemCardapio ||
+        !itemDisponivel(itemCardapio) ||
+        !categoriaAtiva(itemCardapio.categoria)
+      ) {
         throw new HttpError(400, 'Item indisponível no momento');
       }
       exigirEstoque(linhasCom(pedido, body.itemCardapioId, body.quantidade));

@@ -53,9 +53,14 @@ export function AbaPedidos({ api }: PropsAbaFuncionario) {
   );
   useEffect(() => {
     carregar();
-    const intervalo = window.setInterval(carregar, INTERVALO_ATUALIZACAO_MS);
+    // US 35: a atualização sozinha não conta como uso, para a sessão expirar se ninguém
+    // mexer na tela por 30 minutos.
+    const intervalo = window.setInterval(
+      () => executar(async () => setPedidos(await api.listarPedidos(true))),
+      INTERVALO_ATUALIZACAO_MS,
+    );
     return () => window.clearInterval(intervalo);
-  }, [carregar]);
+  }, [api, carregar, executar]);
 
   const receber = (pedido: PedidoAguardandoRetirada) =>
     executar(async () => {

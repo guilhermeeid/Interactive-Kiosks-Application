@@ -6,6 +6,7 @@ import type {
 } from '@totem/shared';
 import type { PagamentoGateway } from '../../integrations/gateway-pagamento';
 import {
+  categoriaAtiva,
   config,
   cupons,
   demandaPorItem,
@@ -18,6 +19,7 @@ import {
   persistir,
   recalcularPedido,
   reservarNumeroPedido,
+  saldoDisponivel,
 } from '../../db/memory-store';
 import { HttpError } from '../../errors';
 import { validarCupomNoPedido } from '../cupom/cupom.service';
@@ -48,7 +50,7 @@ function definirConsumo(consumo: unknown): ConsumoPedido {
 function revalidarPedido(pedido: Pedido): void {
   for (const linha of pedido.itens) {
     const item = obterItem(linha.itemCardapioId);
-    if (!item || !itemDisponivel(item)) {
+    if (!item || !itemDisponivel(item) || !categoriaAtiva(item.categoria)) {
       throw new HttpError(409, `${linha.nome} não está mais disponível. Remova-o do carrinho.`);
     }
   }
@@ -71,8 +73,11 @@ function revalidarPedido(pedido: Pedido): void {
     }
   }
 
-  const saldo = obterClienteDoPedido(pedido)?.pontos ?? 0;
-  if ((pedido.pontosUsados ?? 0) > saldo) {
+  // Card B / US 37: o que conta é o saldo livre — sem os pontos que outro pedido em
+  // andamento do mesmo cliente reservou (a reserva deste pedido pode ter vencido).
+  const cliente = obterClienteDoPedido(pedido);
+  const disponivel = cliente ? saldoDisponivel(cliente, pedido.id) : 0;
+  if ((pedido.pontosUsados ?? 0) > disponivel) {
     pedido.pontosUsados = undefined;
     recalcularPedido(pedido);
     throw new HttpError(409, 'Seu saldo de pontos mudou. O total foi atualizado.');
@@ -96,9 +101,11 @@ function clienteComFidelidade(pedido: Pedido) {
 
 // Segura o que o pedido consome assim que ele sai do totem: estoque (combos baixam os
 // itens que os compõem), o uso do cupom, os pontos resgatados e o número de retirada.
+// Tudo de uma vez, sem `await` no meio: nenhuma outra requisição vê metade da reserva.
 function reservarPedido(pedido: Pedido, numero: string, forma: FormaPagamento): void {
   pedido.numero = numero;
   pedido.formaPagamento = forma;
+  pedido.reservaPontosAte = undefined; // os pontos saem do saldo agora
 
   for (const [id, unidades] of demandaPorItem(pedido.itens)) {
     const item = obterItem(id);
@@ -114,6 +121,33 @@ function reservarPedido(pedido: Pedido, numero: string, forma: FormaPagamento): 
   if (cliente) {
     cliente.pontos -= pedido.pontosUsados ?? 0;
   }
+}
+
+// O contrário de reservarPedido: devolve estoque, uso do cupom e pontos resgatados.
+// Usado quando o caixa cancela e quando o pagamento não é aprovado (Card B / US 37:
+// estorno da reserva de pontos).
+function desfazerReserva(pedido: Pedido): void {
+  for (const [id, unidades] of demandaPorItem(pedido.itens)) {
+    const item = obterItem(id);
+    if (item?.estoque !== undefined) {
+      item.estoque += unidades;
+    }
+  }
+  const cupom = pedido.cupomAplicado ? cupons.get(pedido.cupomAplicado) : undefined;
+  if (cupom?.usos) {
+    cupom.usos -= 1;
+  }
+  const cliente = clienteComFidelidade(pedido);
+  if (cliente) {
+    cliente.pontos += pedido.pontosUsados ?? 0;
+  }
+}
+
+// Pagamento não aprovado: o pedido volta a ser um carrinho em montagem, sem número.
+function voltarAoCarrinho(pedido: Pedido): void {
+  desfazerReserva(pedido);
+  pedido.numero = undefined;
+  pedido.formaPagamento = undefined;
 }
 
 // Pagamento confirmado (no terminal ou no caixa): o pedido vira pago e os pontos
@@ -134,11 +168,19 @@ function confirmarPagamento(pedido: Pedido): void {
 // módulo (ver integrations/gateway-pagamento).
 // Dinheiro não passa pelo gateway: o totem reserva o pedido e manda o cliente ao caixa,
 // onde o atendente recebe, confirma e emite a nota (ver receberNoCaixa).
+// Pedidos com cobrança em andamento no gateway. Um segundo toque em "Pagar" (ou outro
+// totem com o mesmo pedido) espera a resposta do primeiro em vez de cobrar e reservar
+// pontos duas vezes.
+const pagamentosEmAndamento = new Set<string>();
+
 export async function escolherFormaPagamento(
   body: EscolherFormaPagamentoBody,
   gateway: PagamentoGateway,
 ): Promise<ResultadoPagamento> {
   const pedido = obterOuCriarPedido(body.pedidoId);
+  if (pagamentosEmAndamento.has(pedido.id)) {
+    throw new HttpError(409, 'O pagamento deste pedido já está em andamento');
+  }
   if (pedido.status !== 'em_montagem') {
     throw new HttpError(409, 'Este pedido já foi pago');
   }
@@ -177,18 +219,31 @@ export async function escolherFormaPagamento(
     };
   }
 
-  const resultado = await gateway.iniciarPagamento({
-    pedidoId: pedido.id,
-    formaPagamento: body.formaPagamento,
-    valorCentavos: pedido.valorAPagarCentavos,
-  });
-
-  if (resultado.status === 'autorizado') {
-    reservarPedido(pedido, numero, body.formaPagamento);
-    confirmarPagamento(pedido);
-    persistir();
+  // Card B / US 37: reserva antes de cobrar. Enquanto o gateway responde, os pontos (e o
+  // estoque e o cupom) já estão fora do alcance de outros pedidos; se a cobrança não for
+  // aprovada ou falhar, tudo volta e o carrinho continua como estava.
+  reservarPedido(pedido, numero, body.formaPagamento);
+  pagamentosEmAndamento.add(pedido.id);
+  let resultado: ResultadoPagamento;
+  try {
+    resultado = await gateway.iniciarPagamento({
+      pedidoId: pedido.id,
+      formaPagamento: body.formaPagamento,
+      valorCentavos: pedido.valorAPagarCentavos,
+    });
+  } catch (err) {
+    voltarAoCarrinho(pedido);
+    throw err;
+  } finally {
+    pagamentosEmAndamento.delete(pedido.id);
   }
 
+  if (resultado.status === 'autorizado') {
+    confirmarPagamento(pedido);
+  } else {
+    voltarAoCarrinho(pedido);
+  }
+  persistir();
   return resultado;
 }
 
@@ -213,20 +268,7 @@ export async function receberNoCaixa(pedidoId: string): Promise<Pedido> {
 // uso do cupom, pontos resgatados e o número de retirada.
 export async function cancelarNoCaixa(pedidoId: string): Promise<Pedido> {
   const pedido = pedidoNoCaixa(pedidoId);
-  for (const [id, unidades] of demandaPorItem(pedido.itens)) {
-    const item = obterItem(id);
-    if (item?.estoque !== undefined) {
-      item.estoque += unidades;
-    }
-  }
-  const cupom = pedido.cupomAplicado ? cupons.get(pedido.cupomAplicado) : undefined;
-  if (cupom?.usos) {
-    cupom.usos -= 1;
-  }
-  const cliente = clienteComFidelidade(pedido);
-  if (cliente) {
-    cliente.pontos += pedido.pontosUsados ?? 0;
-  }
+  desfazerReserva(pedido);
   pedido.status = 'cancelado';
   pedido.pontosPrevistos = undefined;
   persistir();

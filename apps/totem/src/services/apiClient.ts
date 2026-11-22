@@ -86,6 +86,12 @@ export function obterCarrinho(pedidoId: string): Promise<Pedido> {
   return request(`/carrinho/${pedidoId}`);
 }
 
+// Card B / US 37: o cliente voltou ao início sem pagar; libera os pontos reservados.
+export function desistirDoPedido(pedidoId: string): Promise<void> {
+  // Corpo vazio com Content-Type JSON é recusado pelo Fastify; por isso o `{}`.
+  return request(`/carrinho/${pedidoId}/desistir`, { method: 'POST', body: '{}' });
+}
+
 // US-02
 export function adicionarItemCarrinho(
   pedidoId: string,

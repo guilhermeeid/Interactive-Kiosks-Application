@@ -1,5 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { adicionarItem, atualizarItem, obterCarrinho, removerItem } from './carrinho.service';
+import {
+  adicionarItem,
+  atualizarItem,
+  desistirDoPedido,
+  obterCarrinho,
+  removerItem,
+} from './carrinho.service';
 import type {
   AdicionarItemCarrinhoBody,
   AtualizarItemCarrinhoBody,
@@ -30,4 +36,10 @@ export async function carrinhoRoutes(app: FastifyInstance): Promise<void> {
       return removerItem(request.params);
     },
   );
+
+  // Card B / US 37: cliente desistiu do pedido; libera os pontos reservados.
+  app.post<{ Params: { pedidoId: string } }>('/:pedidoId/desistir', async (request, reply) => {
+    await desistirDoPedido(request.params.pedidoId);
+    return reply.code(204).send();
+  });
 }

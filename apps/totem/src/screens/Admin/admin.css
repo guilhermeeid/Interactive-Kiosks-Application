@@ -88,10 +88,11 @@
   font-size: 0.95rem;
 }
 
-/* ---------- Entrada (PIN) ---------- */
+/* ---------- Entrada (usuário e senha; US 35) ---------- */
 
+/* Largo o bastante para o teclado virtual, que tem dez teclas por linha. */
 .admin--entrada {
-  max-width: 420px;
+  max-width: 640px;
   padding-top: 3rem;
 }
 
@@ -107,6 +108,45 @@
 
 .admin--entrada .teclado-numerico {
   margin: 0 auto;
+}
+
+/* ---------- Usuários (US 35) e categorias (US 33) ---------- */
+
+.admin-usuario-logado {
+  font-weight: 700;
+}
+
+.admin-bloqueado {
+  color: var(--cor-ketchup);
+  font-weight: 700;
+}
+
+/* Alça para arrastar a categoria: funciona com mouse e com o dedo. */
+.admin-alca {
+  flex: none;
+  align-self: flex-start;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  border: 2px dashed currentColor;
+  border-radius: 0.7rem;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+}
+
+.admin-alca:active {
+  cursor: grabbing;
+}
+
+.admin-linha--arrastando {
+  outline: 3px solid var(--cor-mostarda);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.18);
+}
+
+.admin-linha--desativada {
+  opacity: 0.6;
 }
 
 /* ---------- Estrutura ---------- */

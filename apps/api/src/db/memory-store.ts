@@ -22,6 +22,7 @@ import {
   salvarRascunho,
   type PendenciasLista,
   type RascunhoSalvo,
+  type UsuarioPainelSalvo,
 } from './persistencia';
 
 // Armazenamento em memória usado como substituto temporário do Postgres, para o MVP
@@ -98,6 +99,13 @@ export const clientesFidelidade = new Map<string, ClienteFidelidade>(
 
 export const comprovantes = new Map<string, Comprovante>();
 
+// Card E / US 35: usuários do painel, por id. Mudam na hora (não passam pelas pendências
+// do Administrador). Sem nenhum salvo, o servidor cria os iniciais ao subir (ver
+// modules/acesso, `criarUsuariosIniciais`).
+export const usuariosPainel = new Map<string, UsuarioPainelSalvo>(
+  (salvo?.usuariosPainel ?? []).map((usuario) => [usuario.id, usuario]),
+);
+
 export const cupons = new Map<string, Cupom>(
   (
     salvo?.cupons ?? [
@@ -143,6 +151,7 @@ export function persistir(): void {
     cupons: [...cupons.values()],
     clientesFidelidade: [...clientesFidelidade.values()],
     pedidos: [...pedidos.values()].filter(pedidoAguardaRetirada),
+    usuariosPainel: [...usuariosPainel.values()],
   });
 }
 
@@ -303,6 +312,48 @@ export function obterClienteDoPedido(pedido: Pedido): ClienteFidelidade | undefi
   return [...clientesFidelidade.values()].find((cliente) => cliente.id === pedido.clienteId);
 }
 
+// ---------- Reserva de pontos (Card B / US 37) ----------
+
+// Por quanto tempo os pontos escolhidos no carrinho ficam presos ao pedido. Renovado a
+// cada vez que o cliente escolhe os pontos e no pagamento.
+export const RESERVA_PONTOS_MINUTOS = 15;
+
+export function prazoReservaPontos(agora = Date.now()): string {
+  return new Date(agora + RESERVA_PONTOS_MINUTOS * 60_000).toISOString();
+}
+
+// Pontos que outros pedidos ainda em montagem deste cliente reservaram e que não
+// venceram. Pedido pago ou no caixa já tirou os pontos do saldo; cancelado não reserva.
+export function pontosReservadosEmOutrosPedidos(
+  clienteId: string,
+  pedidoId: string,
+  agora = Date.now(),
+): number {
+  let total = 0;
+  for (const outro of pedidos.values()) {
+    if (
+      outro.id !== pedidoId &&
+      outro.clienteId === clienteId &&
+      outro.status === 'em_montagem' &&
+      outro.pontosUsados &&
+      outro.reservaPontosAte &&
+      Date.parse(outro.reservaPontosAte) > agora
+    ) {
+      total += outro.pontosUsados;
+    }
+  }
+  return total;
+}
+
+// O que o cliente pode usar neste pedido: o saldo menos o que está reservado em outros.
+export function saldoDisponivel(
+  cliente: ClienteFidelidade,
+  pedidoId: string,
+  agora = Date.now(),
+): number {
+  return Math.max(cliente.pontos - pontosReservadosEmOutrosPedidos(cliente.id, pedidoId, agora), 0);
+}
+
 // ---------- Itens, combos e estoque ----------
 
 export function obterItem(id: string): ItemCardapio | undefined {
@@ -357,6 +408,14 @@ export function estoqueEfetivo(item: ItemCardapio): number | undefined {
     }
   }
   return maximo;
+}
+
+// Card E / US 33: item de categoria desativada some do totem — não é listado nem pode
+// entrar no carrinho. Fica separado de `itemDisponivel` de propósito: um combo de uma
+// categoria ativa continua à venda mesmo que um item dele seja de categoria desativada
+// (ex.: "Bebidas" fora do cardápio avulso, mas o refrigerante ainda vem no combo).
+export function categoriaAtiva(categoriaId: string): boolean {
+  return config.categorias.find((categoria) => categoria.id === categoriaId)?.ativa !== false;
 }
 
 // US 26 / US 34: um item pode ser comprado se está disponível e, com controle de
@@ -503,6 +562,9 @@ export function recalcularPedido(pedido: Pedido): void {
     ? Math.min(pedido.pontosUsados ?? 0, pontosParaCobrir(restante))
     : 0;
   pedido.pontosUsados = pontos > 0 ? pontos : undefined;
+  if (!pedido.pontosUsados) {
+    pedido.reservaPontosAte = undefined;
+  }
   pedido.descontoPontosCentavos = Math.min(pontosParaCentavos(pontos), restante);
 
   pedido.valorAPagarCentavos = restante - pedido.descontoPontosCentavos;

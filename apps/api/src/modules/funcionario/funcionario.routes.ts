@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { MockEmissorFiscal } from '../../integrations/api-fiscal';
-import { exigirPapel } from '../admin/acesso';
+import { exigirPapel } from '../acesso';
 import { enviarImagem } from '../admin/admin.service';
 import type { EnviarImagemBody, ProdutoAoVivoBody } from '../admin/admin.types';
 import {
@@ -12,8 +12,8 @@ import {
   receberPagamentoNoCaixa,
 } from './funcionario.service';
 
-// Rotas do modo Funcionário (o Administrador também pode usá-las). O que muda aqui vale
-// na hora.
+// Rotas do perfil Funcionário (o Administrador também pode usá-las; Card E / US 35). O
+// que muda aqui vale na hora.
 export async function funcionarioRoutes(app: FastifyInstance): Promise<void> {
   exigirPapel(app, ['administrador', 'funcionario']);
   // TODO: injeção de dependência quando o emissor fiscal real existir.

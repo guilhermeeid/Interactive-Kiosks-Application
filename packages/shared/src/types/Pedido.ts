@@ -42,6 +42,10 @@ export interface Pedido {
   // mínimo); o totem mostra este aviso no carrinho.
   avisoCupom?: string;
   pontosUsados?: number; // pontos de fidelidade resgatados neste pedido
+  // Card B / US 37: até quando os pontos escolhidos ficam reservados para este pedido.
+  // Enquanto valer, outro pedido do mesmo cliente não pode usá-los; vencida, eles voltam
+  // a ficar livres (e este pedido só os usa se ainda estiverem livres ao pagar).
+  reservaPontosAte?: string;
   // Valores sempre calculados no servidor; o totem só exibe.
   valorTotalCentavos: number; // soma dos itens, antes dos descontos
   descontoCupomCentavos: number;

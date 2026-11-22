@@ -21,7 +21,10 @@ import { formatarCentavos } from '../../utils/formatarMoeda';
 // US 34 / item 7: enquanto está aberto, o cardápio se relê sozinho a cada 30 segundos,
 // para o que o funcionário mudar (esgotado, preço, foto, descrição) chegar aos totens.
 export function CardapioScreen() {
-  const { aparencia, categorias, exibirTodos, posicaoCategorias } = useConfig();
+  const { aparencia, categorias: todasCategorias, exibirTodos, posicaoCategorias } = useConfig();
+  // Card E / US 33: só as categorias ativas viram abas, na ordem do administrador. As
+  // desativadas continuam em `todasCategorias` só para o visual (ícone) de itens de combo.
+  const categorias = todasCategorias.filter((categoria) => categoria.ativa);
   const [itens, setItens] = useState<ItemCardapio[]>([]);
   // Cardápio inteiro, para nomear os itens de um combo que estão em outras categorias.
   const [todos, setTodos] = useState<ItemCardapio[]>([]);
@@ -193,7 +196,11 @@ export function CardapioScreen() {
                 }
                 onClick={() => setItemAberto(item)}
               >
-                <FotoItem item={item} categorias={categorias} className="cardapio-item__foto" />
+                <FotoItem
+                  item={item}
+                  categorias={todasCategorias}
+                  className="cardapio-item__foto"
+                />
                 {!item.disponivel && <span className="selo-esgotado">Esgotado</span>}
                 <span className="cardapio-item__nome">{item.nome}</span>
                 {item.disponivel ? (
@@ -237,7 +244,7 @@ export function CardapioScreen() {
         <ItemModal
           key={itemAtual.id}
           item={itemAtual}
-          categorias={categorias}
+          categorias={todasCategorias}
           nomeDoItem={(id) => nomes.get(id) ?? 'item'}
           restante={restanteDe(itemAtual)}
           aoAdicionar={(quantidade) => adicionar(itemAtual, quantidade)}

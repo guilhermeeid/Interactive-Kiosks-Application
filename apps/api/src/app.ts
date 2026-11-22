@@ -1,7 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerCors } from './plugins/cors';
 import { registerSensible } from './plugins/sensible';
-import { acessoRoutes, adminRoutes, configRoutes } from './modules/admin';
+import { acessoRoutes, usuariosRoutes } from './modules/acesso';
+import { adminRoutes, configRoutes } from './modules/admin';
 import { cardapioRoutes } from './modules/cardapio';
 import { carrinhoRoutes } from './modules/carrinho';
 import { identificacaoRoutes } from './modules/identificacao';
@@ -13,16 +14,19 @@ import { funcionarioRoutes } from './modules/funcionario';
 
 // Monta a instância do Fastify: plugins de infraestrutura + rotas de cada módulo de
 // negócio do tier Básico (um por Épico do backlog).
-export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
+// `logger: false` serve aos testes de rota, para não encher a saída.
+export async function buildApp(opcoes: { logger?: boolean } = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: opcoes.logger ?? true });
 
   await registerSensible(app);
   await registerCors(app);
 
-  // Configuração do totem (leitura pública) e área restrita, com PIN: modo Administrador
-  // (mudanças pendentes até o servidor reiniciar) e modo Funcionário (vale na hora)
+  // Configuração do totem (leitura pública) e área restrita, com login por usuário e
+  // senha (Card E / US 35): perfil Administrador (mudanças pendentes até o servidor
+  // reiniciar) e perfil Funcionário (vale na hora)
   await app.register(configRoutes);
   await app.register(acessoRoutes, { prefix: '/acesso' });
+  await app.register(usuariosRoutes, { prefix: '/admin/usuarios' });
   await app.register(adminRoutes, { prefix: '/admin' });
   await app.register(funcionarioRoutes, { prefix: '/funcionario' });
 

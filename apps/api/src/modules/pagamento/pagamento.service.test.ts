@@ -1,10 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import type { ConsumoPedido, FormaPagamento, ItemCardapio } from '@totem/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import type {
+  ConsumoPedido,
+  FormaPagamento,
+  ItemCardapio,
+  ResultadoPagamento,
+} from '@totem/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { criarConfigPadrao } from '../../db/config-padrao';
 import { clientesFidelidade, config, cupons, itensCardapio } from '../../db/memory-store';
-import { MockPagamentoGateway } from '../../integrations/gateway-pagamento';
-import { adicionarItem, obterCarrinho } from '../carrinho/carrinho.service';
+import {
+  MockPagamentoGateway,
+  type PagamentoGateway,
+} from '../../integrations/gateway-pagamento';
+import { adicionarItem, desistirDoPedido, obterCarrinho } from '../carrinho/carrinho.service';
 import { registrarConsentimentos } from '../consentimento/consentimento.service';
 import { VERSAO_TERMO } from '../consentimento/termo';
 import { aplicarCupom } from '../cupom/cupom.service';
@@ -58,6 +66,7 @@ function criarItem(dados: Partial<ItemCardapio>): ItemCardapio {
 
 afterEach(() => {
   Object.assign(config, criarConfigPadrao());
+  vi.restoreAllMocks();
 });
 
 describe('escolherFormaPagamento', () => {
@@ -341,5 +350,140 @@ describe('pontos de fidelidade no pagamento', () => {
     await pagar(pedidoId);
     expect((await obterCarrinho(pedidoId)).pontosAcumulados).toBe(0);
     expect(clientesFidelidade.get(cpf)?.pontos).toBe(0);
+  });
+});
+
+// Card B / US 37: os pontos (com estoque e cupom) são reservados antes da cobrança e
+// voltam se ela não for aprovada.
+describe('reserva e estorno dos pontos no pagamento', () => {
+  // Gateway que responde o que o teste mandar, quando o teste mandar.
+  function gatewayControlado(resposta: () => Promise<ResultadoPagamento>): PagamentoGateway {
+    return {
+      iniciarPagamento: resposta,
+      consultarStatus: () => Promise.reject(new Error('não usado')),
+      estornar: () => Promise.resolve(),
+    };
+  }
+  const recusado = (): Promise<ResultadoPagamento> =>
+    Promise.resolve({
+      transacaoId: 't-recusada',
+      formaPagamento: 'credito',
+      status: 'recusado',
+      valorCentavos: 0,
+    });
+
+  async function pedidoComPontosECupom(cpf: string) {
+    const torta = criarItem({ estoque: 5 });
+    cupons.set(`CUPOM-${cpf}`, {
+      codigo: `CUPOM-${cpf}`,
+      tipoDesconto: 'valor_fixo',
+      valor: 100,
+      limiteUsos: 1,
+      usos: 0,
+      ativo: true,
+    });
+    cadastrarCliente(cpf, 500);
+    const pedidoId = await pedidoCom(torta.id, 2);
+    await identificar(pedidoId, cpf);
+    await aplicarCupom({ pedidoId, codigo: `CUPOM-${cpf}` });
+    await usarPontos({ pedidoId, pontos: 300 });
+    return { pedidoId, torta, cupom: cupons.get(`CUPOM-${cpf}`) };
+  }
+
+  it('pagamento recusado devolve pontos, estoque e cupom e mantém o carrinho', async () => {
+    const cpf = '52998224725';
+    const { pedidoId, torta, cupom } = await pedidoComPontosECupom(cpf);
+
+    const resultado = await escolherFormaPagamento(
+      { pedidoId, formaPagamento: 'credito', consumo: 'local' },
+      gatewayControlado(recusado),
+    );
+    expect(resultado.status).toBe('recusado');
+    expect(clientesFidelidade.get(cpf)?.pontos).toBe(500);
+    expect(torta.estoque).toBe(5);
+    expect(cupom?.usos).toBe(0);
+    const pedido = await obterCarrinho(pedidoId);
+    expect(pedido).toMatchObject({ status: 'em_montagem', pontosUsados: 300 });
+    expect(pedido.numero).toBeUndefined();
+
+    // O cliente tenta de novo, com outro cartão, e dá certo.
+    expect((await pagar(pedidoId, 'debito')).status).toBe('autorizado');
+    expect(clientesFidelidade.get(cpf)?.pontos).toBe(500 - 300 + pedido.valorAPagarCentavos / 20);
+  });
+
+  it('falha de comunicação com o gateway também devolve tudo', async () => {
+    const cpf = '16899535009';
+    const { pedidoId, torta } = await pedidoComPontosECupom(cpf);
+    const fora = gatewayControlado(() => Promise.reject(new Error('Gateway fora do ar')));
+
+    await expect(
+      escolherFormaPagamento({ pedidoId, formaPagamento: 'pix', consumo: 'local' }, fora),
+    ).rejects.toThrow('Gateway fora do ar');
+    expect(clientesFidelidade.get(cpf)?.pontos).toBe(500);
+    expect(torta.estoque).toBe(5);
+    expect((await obterCarrinho(pedidoId)).status).toBe('em_montagem');
+  });
+
+  it('com a cobrança em andamento, outro pedido não usa os mesmos pontos', async () => {
+    const cpf = '93541134780';
+    cadastrarCliente(cpf, 1000);
+    const primeiro = await pedidoComLanche();
+    const segundo = await pedidoComLanche();
+    await identificar(primeiro, cpf);
+    await identificar(segundo, cpf);
+    await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+
+    let aprovar!: (resultado: ResultadoPagamento) => void;
+    const lento = gatewayControlado(() => new Promise((resolve) => (aprovar = resolve)));
+    const cobranca = escolherFormaPagamento(
+      { pedidoId: primeiro, formaPagamento: 'credito', consumo: 'local' },
+      lento,
+    );
+
+    // Os pontos já saíram do saldo: não sobram para o outro pedido nem para pagar duas vezes.
+    expect(clientesFidelidade.get(cpf)?.pontos).toBe(0);
+    await expect(usarPontos({ pedidoId: segundo, pontos: 100 })).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    await expect(pagar(primeiro)).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'O pagamento deste pedido já está em andamento',
+    });
+
+    aprovar({
+      transacaoId: 't1',
+      formaPagamento: 'credito',
+      status: 'autorizado',
+      valorCentavos: 890,
+    });
+    await cobranca;
+    expect((await obterCarrinho(primeiro)).status).toBe('pago');
+  });
+
+  it('se a reserva venceu e outro pedido usou os pontos, avisa antes de cobrar', async () => {
+    const cpf = '04715822040';
+    cadastrarCliente(cpf, 1000);
+    const primeiro = await pedidoComLanche();
+    const segundo = await pedidoComLanche();
+    await identificar(primeiro, cpf);
+    await identificar(segundo, cpf);
+    const reserva = await usarPontos({ pedidoId: primeiro, pontos: 1000 });
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(reserva.reservaPontosAte as string) + 1);
+    await usarPontos({ pedidoId: segundo, pontos: 1000 });
+    await pagar(segundo);
+
+    await expect(pagar(primeiro)).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'Seu saldo de pontos mudou. O total foi atualizado.',
+    });
+    expect((await obterCarrinho(primeiro)).pontosUsados).toBeUndefined();
+  });
+
+  it('desistir não mexe em pedido já pago', async () => {
+    const pedidoId = await pedidoComLanche();
+    await pagar(pedidoId);
+    await desistirDoPedido(pedidoId);
+    expect((await obterCarrinho(pedidoId)).status).toBe('pago');
   });
 });

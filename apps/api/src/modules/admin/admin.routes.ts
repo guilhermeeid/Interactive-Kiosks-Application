@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { ConfigTotem } from '@totem/shared';
 import type { FastifyInstance } from 'fastify';
 import { lerImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
-import { exigirPapel } from './acesso';
+import { exigirPapel } from '../acesso';
 import {
   atualizarConfig,
   atualizarCupom,
@@ -25,7 +24,13 @@ import {
   removerCliente,
   removerProduto,
 } from './admin.service';
-import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
+import type {
+  AtualizarConfigBody,
+  ClienteBody,
+  CupomBody,
+  EnviarImagemBody,
+  ProdutoBody,
+} from './admin.types';
 
 // Identifica esta execução do servidor. Quando muda, o servidor foi reiniciado (e as
 // mudanças do Administrador entraram em vigor): o totem se recarrega na próxima vez que
@@ -56,9 +61,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-// Rotas do modo Administrador (PIN ADMIN_PIN no cabeçalho `x-pin`). Configuração,
-// produtos e cupons ficam pendentes até o servidor reiniciar; clientes de fidelidade
-// mudam na hora.
+// Rotas do perfil Administrador (Card E / US 35: sessão de um usuário Administrador).
+// Configuração, produtos e cupons ficam pendentes até o servidor reiniciar; clientes de
+// fidelidade mudam na hora. Os usuários do painel ficam em modules/acesso.
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   exigirPapel(app, ['administrador']);
 
@@ -73,7 +78,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/config', async () => {
     return obterConfigAdmin();
   });
-  app.put<{ Body: ConfigTotem }>('/config', async (request) => {
+  app.put<{ Body: AtualizarConfigBody }>('/config', async (request) => {
     return atualizarConfig(request.body);
   });
 

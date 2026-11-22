@@ -1,18 +1,25 @@
 import { buildApp } from './app';
-import { ADMIN_PIN_PADRAO, FUNCIONARIO_PIN_PADRAO, loadEnv } from './config/env';
+import { ADMIN_SENHA_PADRAO, FUNCIONARIO_SENHA_PADRAO, loadEnv } from './config/env';
+import { criarUsuariosIniciais } from './modules/acesso';
 
 async function start(): Promise<void> {
   const env = loadEnv();
   const app = await buildApp();
 
-  if (env.adminPin === ADMIN_PIN_PADRAO || env.funcionarioPin === FUNCIONARIO_PIN_PADRAO) {
-    app.log.warn(
-      `Área restrita usando PIN padrão (Administrador ${ADMIN_PIN_PADRAO}, Funcionário ` +
-        `${FUNCIONARIO_PIN_PADRAO}). Defina ADMIN_PIN e FUNCIONARIO_PIN antes de usar o totem de verdade.`,
-    );
-  }
-  if (env.adminPin === env.funcionarioPin) {
-    app.log.warn('ADMIN_PIN e FUNCIONARIO_PIN são iguais: todo acesso entrará como Administrador.');
+  // Card E / US 35: na primeira subida, sem nenhum usuário do painel, cria os iniciais.
+  const criados = await criarUsuariosIniciais(env);
+  if (criados.length > 0) {
+    app.log.info(`Usuários do painel criados: ${criados.join(', ')}.`);
+    if (
+      env.adminSenhaInicial === ADMIN_SENHA_PADRAO ||
+      env.funcionarioSenhaInicial === FUNCIONARIO_SENHA_PADRAO
+    ) {
+      app.log.warn(
+        `Usuários do painel criados com a senha padrão (admin: ${ADMIN_SENHA_PADRAO}, ` +
+          `funcionario: ${FUNCIONARIO_SENHA_PADRAO}). Troque as senhas na aba Usuários ` +
+          'antes de usar o totem de verdade.',
+      );
+    }
   }
 
   try {

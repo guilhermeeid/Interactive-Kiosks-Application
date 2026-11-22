@@ -214,6 +214,15 @@ export function AbaCupons({ api, config, salvarConfig, aoSalvar }: PropsAba) {
   async function salvar(atual: FormCupom) {
     const salvou = await executar(async () => {
       const dados = dadosDoForm(atual);
+      // Card E / US 39: avisa já na tela (a API confere de novo) código repetido e datas
+      // inconsistentes.
+      const codigo = dados.codigo.trim().toUpperCase();
+      if (atual.novo && cupons.some((cupom) => cupom.codigo === codigo)) {
+        throw new Error(`Já existe um cupom "${codigo}"`);
+      }
+      if (dados.validoDe && dados.validoAte && dados.validoDe > dados.validoAte) {
+        throw new Error('O fim da validade deve ser depois do início');
+      }
       await (atual.novo ? api.criarCupom(dados) : api.atualizarCupom(atual.codigo, dados));
       setCupons(await api.listarCupons());
       aoSalvar();

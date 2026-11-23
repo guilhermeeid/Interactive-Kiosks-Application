@@ -10,6 +10,7 @@ import { cupomRoutes } from './modules/cupom';
 import { comprovanteRoutes } from './modules/comprovante';
 import { consentimentoRoutes } from './modules/consentimento';
 import { funcionarioRoutes } from './modules/funcionario';
+import { nfcRoutes } from './modules/nfc';
 
 // Monta a instância do Fastify: plugins de infraestrutura + rotas de cada módulo de
 // negócio do tier Básico (um por Épico do backlog).
@@ -40,6 +41,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Épico 4 — Emissão de Comprovante
   await app.register(comprovanteRoutes, { prefix: '/comprovante' });
+
+  // Tier Intermediário (opcional): leitor NFC ligado por USB-C
+  await app.register(nfcRoutes, { prefix: '/nfc' });
 
   return app;
 }

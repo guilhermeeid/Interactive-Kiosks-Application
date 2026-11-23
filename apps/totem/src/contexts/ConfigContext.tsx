@@ -2,12 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { ConfigTotem, TermoConsentimento } from '@totem/shared';
 import { BotaoTouch } from '../components/BotaoTouch';
 import { buscarConfig, buscarTermoConsentimento } from '../services/apiClient';
+import { INTERVALO_ATUALIZACAO_CARDAPIO_MS } from '../utils/atualizacaoCardapio';
 import { aplicarTema } from '../utils/tema';
 
-// O que o totem lê uma única vez, ao iniciar: a configuração definida pelo administrador
-// (aparência, categorias, fidelidade, formas de pagamento, cupons) e o termo de
-// consentimento vigente (US 29). Mudanças feitas em /admin só passam a valer depois que
-// o totem é reiniciado.
+// O que o totem lê ao iniciar: a configuração definida pelo administrador (aparência,
+// categorias, fidelidade, formas de pagamento, cupons) e o termo de consentimento
+// vigente (US 29). Mudanças feitas em /admin só passam a valer depois que o totem é
+// reiniciado — menos a ordem e a ativação das categorias, que valem na hora: elas são
+// relidas a cada 30 segundos, junto com o cardápio.
 interface Inicializacao {
   config: ConfigTotem;
   termo: TermoConsentimento;
@@ -32,6 +34,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Ordem e ativação das categorias (arrastar e soltar / desativar no /admin).
+  useEffect(() => {
+    const intervalo = window.setInterval(() => {
+      buscarConfig()
+        .then(({ categorias }) =>
+          setInicializacao((atual) =>
+            atual && JSON.stringify(atual.config.categorias) !== JSON.stringify(categorias)
+              ? { ...atual, config: { ...atual.config, categorias } }
+              : atual,
+          ),
+        )
+        .catch(() => undefined); // fora do ar: tenta de novo no próximo ciclo
+    }, INTERVALO_ATUALIZACAO_CARDAPIO_MS);
+    return () => window.clearInterval(intervalo);
+  }, []);
 
   if (falhou) {
     return (

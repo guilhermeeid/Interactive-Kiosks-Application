@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ConsumoPedido, PedidoAguardandoRetirada } from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
-import { mascararCpf } from '../../utils/cpf';
 import { nomeFormaPagamento } from '../../utils/formasPagamento';
 import { formatarCentavos } from '../../utils/formatarMoeda';
 import { MensagemRetorno, useAcao, type PropsAbaFuncionario } from './comum';
@@ -27,7 +26,7 @@ function Resumo({ pedido }: { pedido: PedidoAguardandoRetirada }) {
           .join(' · ')}
       </small>
       {/* LGPD: o CPF sai na nota emitida pelo servidor; aqui só o miolo, para conferir. */}
-      {pedido.cpfNaNota && <small>CPF na nota: {mascararCpf(pedido.cpfNaNota)}</small>}
+      {pedido.cpfNaNotaMascarado && <small>CPF na nota: {pedido.cpfNaNotaMascarado}</small>}
       {pedido.notaFiscalUrl && (
         <small>
           <a href={pedido.notaFiscalUrl} target="_blank" rel="noreferrer">
@@ -48,12 +47,13 @@ export function AbaPedidos({ api }: PropsAbaFuncionario) {
   const { retorno, ocupado, executar } = useAcao();
 
   const carregar = useCallback(
-    () => executar(async () => setPedidos(await api.listarPedidos())),
+    (passiva = false) => executar(async () => setPedidos(await api.listarPedidos(passiva))),
     [api, executar],
   );
   useEffect(() => {
     carregar();
-    const intervalo = window.setInterval(carregar, INTERVALO_ATUALIZACAO_MS);
+    // A atualização automática não conta como uso: a sessão expira mesmo com a aba aberta.
+    const intervalo = window.setInterval(() => carregar(true), INTERVALO_ATUALIZACAO_MS);
     return () => window.clearInterval(intervalo);
   }, [carregar]);
 
@@ -127,7 +127,7 @@ export function AbaPedidos({ api }: PropsAbaFuncionario) {
           {paraRetirar.length === 0 && <p className="admin-dica">Nenhum pedido aguardando.</p>}
         </div>
 
-        <BotaoTouch onClick={carregar}>Atualizar</BotaoTouch>
+        <BotaoTouch onClick={() => carregar()}>Atualizar</BotaoTouch>
       </section>
     </>
   );

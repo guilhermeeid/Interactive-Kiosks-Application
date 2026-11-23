@@ -20,7 +20,7 @@ import {
 
 const noCardapio = async (id: string) => (await listarCardapio({})).find((item) => item.id === id);
 
-async function pedidoPago(formaPagamento: 'pix' | 'dinheiro', cpfNaNota?: string): Promise<string> {
+async function pedidoPago(formaPagamento: 'credito' | 'dinheiro', cpfNaNota?: string): Promise<string> {
   const pedidoId = randomUUID();
   await adicionarItem({
     pedidoId,
@@ -78,15 +78,29 @@ describe('produtos no modo Funcionário', () => {
     expect((await noCardapio('lanche-classico'))?.imagemUrl).toBeUndefined();
   });
 
-  it('não muda nome, categoria nem estoque, e recusa valores inválidos', async () => {
+  // Pedido de revisão: a quantidade à venda também vale na hora, nos dois modos.
+  it('troca a quantidade à venda na hora; vazio volta a não controlar', async () => {
+    await atualizarProdutoAoVivo('refrigerante-lata', { estoque: 4 });
+    expect((await noCardapio('refrigerante-lata'))?.estoque).toBe(4);
+
+    await atualizarProdutoAoVivo('refrigerante-lata', { estoque: 0 });
+    expect((await noCardapio('refrigerante-lata'))?.disponivel).toBe(false);
+
+    await atualizarProdutoAoVivo('refrigerante-lata', { estoque: null });
+    expect((await noCardapio('refrigerante-lata'))?.estoque).toBeUndefined();
+
+    await expect(atualizarProdutoAoVivo('refrigerante-lata', { estoque: -2 })).rejects.toThrow(
+      /Quantidade/,
+    );
+  });
+
+  it('não muda nome nem categoria, e recusa valores inválidos', async () => {
     await atualizarProdutoAoVivo('suco-natural', {
       nome: 'Outro nome',
       categoria: 'lanches',
-      estoque: 99,
     } as never).catch(() => undefined);
     const suco = itensCardapio.find((item) => item.id === 'suco-natural');
     expect(suco).toMatchObject({ nome: 'Suco Natural', categoria: 'bebidas' });
-    expect(suco?.estoque).toBeUndefined();
 
     await expect(atualizarProdutoAoVivo('suco-natural', { precoCentavos: -1 })).rejects.toThrow(
       /Preço/,
@@ -115,7 +129,8 @@ describe('pedidos no modo Funcionário', () => {
       status: 'aguardando_pagamento',
       formaPagamento: 'dinheiro',
       consumo: 'viagem',
-      cpfNaNota: '11144477735',
+      // LGPD: o atendente confere só o miolo; a nota sai com o CPF completo pelo servidor.
+      cpfNaNotaMascarado: '***.444.777-**',
       itens: [{ nome: 'Batata Frita', quantidade: 2 }],
     });
     expect(pedido?.notaFiscalUrl).toBeUndefined();
@@ -128,7 +143,7 @@ describe('pedidos no modo Funcionário', () => {
 
     const pedido = (await listarPedidosAguardando()).find((p) => p.id === pedidoId);
     expect(pedido).toMatchObject({ status: 'finalizado', notaFiscalUrl });
-    expect(pedido?.cpfNaNota).toBeUndefined();
+    expect(pedido?.cpfNaNotaMascarado).toBeUndefined();
   });
 
   it('pedido em dinheiro só é entregue depois de pago no caixa', async () => {
@@ -150,7 +165,7 @@ describe('pedidos no modo Funcionário', () => {
   });
 
   it('pedido pago no totem vai direto para a retirada', async () => {
-    const pedidoId = await pedidoPago('pix');
+    const pedidoId = await pedidoPago('credito');
     expect((await listarPedidosAguardando()).find((p) => p.id === pedidoId)?.status).toBe('pago');
     await confirmarEntrega(pedidoId);
     await expect(confirmarEntrega(pedidoId)).rejects.toMatchObject({ statusCode: 404 });

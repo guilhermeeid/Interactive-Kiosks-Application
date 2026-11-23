@@ -1,5 +1,11 @@
 import type { ItemCardapio } from '@totem/shared';
-import { config, estoqueEfetivo, itemDisponivel, itensCardapio } from '../../db/memory-store';
+import {
+  categoriaAtiva,
+  config,
+  estoqueEfetivo,
+  itemDisponivel,
+  itensCardapio,
+} from '../../db/memory-store';
 import type { ListarCardapioQuery } from './cardapio.types';
 
 // Normaliza para comparação: minúsculas e sem acentos ("Refrigerante" casa com "refri").
@@ -18,6 +24,7 @@ function normalizar(texto: string): string {
 // considera o estoque e, nos combos, os itens que os compõem; `estoque` de um combo é
 // quantos combos esses itens ainda permitem montar.
 // A lista segue a ordem das categorias definida pelo administrador (aba "Todos").
+// Itens de categoria desativada não aparecem.
 export async function listarCardapio(query: ListarCardapioQuery): Promise<ItemCardapio[]> {
   const busca = query.busca ? normalizar(query.busca) : '';
   const posicao = (item: ItemCardapio) => {
@@ -28,6 +35,7 @@ export async function listarCardapio(query: ListarCardapioQuery): Promise<ItemCa
   return itensCardapio
     .filter(
       (item) =>
+        categoriaAtiva(item.categoria) &&
         (!query.categoria || item.categoria === query.categoria) &&
         (!busca || normalizar(item.nome).includes(busca)),
     )

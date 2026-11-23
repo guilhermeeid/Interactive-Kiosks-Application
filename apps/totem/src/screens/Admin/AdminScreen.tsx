@@ -1,36 +1,43 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ConfigTotem, PapelAcesso, ResumoPendencias } from '@totem/shared';
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { TecladoNumerico } from '../../components/TecladoNumerico';
 import {
-  conferirAcesso,
   criarAdminApi,
   criarFuncionarioApi,
+  entrar as abrirSessao,
+  sair as encerrarSessao,
   type AdminApi,
   type FuncionarioApi,
 } from '../../services/adminApi';
 import { AbaAparencia } from './AbaAparencia';
 import { AbaCardapio } from './AbaCardapio';
+import { AbaCartoesNfc } from './AbaCartoesNfc';
+import { AbaConsultaPedidos } from './AbaConsultaPedidos';
 import { AbaCupons } from './AbaCupons';
 import { AbaFidelidade } from './AbaFidelidade';
 import { AbaPagamento } from './AbaPagamento';
 import { AbaPedidos } from './AbaPedidos';
 import { AbaPrivacidade } from './AbaPrivacidade';
 import { AbaProdutosAoVivo } from './AbaProdutosAoVivo';
+import { AbaVendas } from './AbaVendas';
 import { MensagemRetorno, useAcao, type PropsAba, type PropsAbaFuncionario } from './comum';
 import './admin.css';
 
 const ABAS_ADMINISTRADOR = [
+  { id: 'vendas', rotulo: 'Vendas', Aba: AbaVendas },
   { id: 'aparencia', rotulo: 'Aparência', Aba: AbaAparencia },
   { id: 'cardapio', rotulo: 'Cardápio', Aba: AbaCardapio },
   { id: 'fidelidade', rotulo: 'Fidelidade', Aba: AbaFidelidade },
   { id: 'pagamento', rotulo: 'Pagamento', Aba: AbaPagamento },
   { id: 'cupons', rotulo: 'Cupons', Aba: AbaCupons },
+  { id: 'nfc', rotulo: 'Cartões NFC', Aba: AbaCartoesNfc },
   { id: 'privacidade', rotulo: 'Privacidade', Aba: AbaPrivacidade },
 ] satisfies { id: string; rotulo: string; Aba: (props: PropsAba) => JSX.Element }[];
 
 const ABAS_FUNCIONARIO = [
   { id: 'pedidos', rotulo: 'Pedidos', Aba: AbaPedidos },
+  { id: 'consulta', rotulo: 'Consulta de pedidos', Aba: AbaConsultaPedidos },
   { id: 'produtos', rotulo: 'Produtos', Aba: AbaProdutosAoVivo },
 ] satisfies { id: string; rotulo: string; Aba: (props: PropsAbaFuncionario) => JSX.Element }[];
 
@@ -38,41 +45,67 @@ type Modo = PapelAcesso;
 
 interface Sessao {
   papel: PapelAcesso;
-  admin: AdminApi | null; // só existe para quem entrou com o PIN de Administrador
-  funcionario: FuncionarioApi;
+  token: string;
+  minutosInatividade: number;
 }
+
+// Eventos que contam como uso da tela, para a expiração por inatividade.
+const EVENTOS_DE_USO = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
 
 // Área restrita do totem (endereço /admin). Item 7: o PIN define o papel.
 // - Administrador muda tudo, mas o que salva fica pendente e só entra em vigor quando o
 //   servidor é reiniciado. Pode alternar para o modo Funcionário.
 // - Funcionário marca itens como esgotados, troca preço, foto e descrição, e cuida dos
 //   pedidos no caixa e no balcão; o que ele muda vale na hora.
+// Acesso: 5 PINs errados seguidos bloqueiam a entrada por alguns minutos (no servidor);
+// 30 minutos sem uso encerram a sessão (aqui e no servidor).
 // Não aplica o tema do totem em si mesma, para uma escolha de cor ruim nunca deixá-la
 // ilegível.
 export function AdminScreen() {
   const [sessao, setSessao] = useState<Sessao | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const encerrar = useCallback((mensagem: string | null) => {
+    setSessao((atual) => {
+      if (atual) {
+        encerrarSessao(atual.token).catch(() => undefined);
+      }
+      return null;
+    });
+    setAviso(mensagem);
+  }, []);
 
   if (!sessao) {
-    return <Entrada aoEntrar={setSessao} />;
+    return (
+      <Entrada
+        aviso={aviso}
+        aoEntrar={(nova) => {
+          setAviso(null);
+          setSessao(nova);
+        }}
+      />
+    );
   }
-  return <Painel sessao={sessao} aoSair={() => setSessao(null)} />;
+  return <Painel sessao={sessao} aoEncerrar={encerrar} />;
 }
 
-function Entrada({ aoEntrar }: { aoEntrar: (sessao: Sessao) => void }) {
+function Entrada({
+  aviso,
+  aoEntrar,
+}: {
+  aviso: string | null;
+  aoEntrar: (sessao: Sessao) => void;
+}) {
   const [pin, setPin] = useState('');
   const { retorno, ocupado, executar } = useAcao();
 
   async function entrar() {
-    let papel: PapelAcesso | null = null;
+    let sessao: Sessao | null = null;
     const deuCerto = await executar(async () => {
-      papel = (await conferirAcesso(pin)).papel;
+      sessao = await abrirSessao(pin);
     });
-    if (deuCerto && papel) {
-      aoEntrar({
-        papel,
-        admin: papel === 'administrador' ? criarAdminApi(pin) : null,
-        funcionario: criarFuncionarioApi(pin),
-      });
+    if (deuCerto && sessao) {
+      aoEntrar(sessao);
     } else {
       setPin('');
     }
@@ -89,6 +122,11 @@ function Entrada({ aoEntrar }: { aoEntrar: (sessao: Sessao) => void }) {
       >
         <h1>Área restrita do totem</h1>
         <p>Digite o PIN de Administrador ou de Funcionário.</p>
+        {aviso && !retorno && (
+          <p className="erro" role="status">
+            {aviso}
+          </p>
+        )}
         <input
           type="password"
           inputMode="numeric"
@@ -108,9 +146,50 @@ function Entrada({ aoEntrar }: { aoEntrar: (sessao: Sessao) => void }) {
   );
 }
 
-function Painel({ sessao, aoSair }: { sessao: Sessao; aoSair: () => void }) {
+// Encerra a sessão depois de `minutos` sem uso da tela (toque, tecla, rolagem). A
+// atualização automática das listas não conta como uso.
+function useExpiracaoPorInatividade(minutos: number, aoExpirar: () => void) {
+  const ultimoUso = useRef(Date.now());
+  useEffect(() => {
+    const registrarUso = () => {
+      ultimoUso.current = Date.now();
+    };
+    EVENTOS_DE_USO.forEach((evento) => window.addEventListener(evento, registrarUso, true));
+    const verificacao = window.setInterval(() => {
+      if (Date.now() - ultimoUso.current > minutos * 60_000) {
+        aoExpirar();
+      }
+    }, 15_000);
+    return () => {
+      EVENTOS_DE_USO.forEach((evento) => window.removeEventListener(evento, registrarUso, true));
+      window.clearInterval(verificacao);
+    };
+  }, [minutos, aoExpirar]);
+}
+
+function Painel({
+  sessao,
+  aoEncerrar,
+}: {
+  sessao: Sessao;
+  aoEncerrar: (mensagem: string | null) => void;
+}) {
   const [modo, setModo] = useState<Modo>(sessao.papel);
-  const ehAdministrador = sessao.admin !== null;
+  const ehAdministrador = sessao.papel === 'administrador';
+  const expirar = useCallback(
+    () => aoEncerrar('Sessão expirada por inatividade. Digite o PIN de novo.'),
+    [aoEncerrar],
+  );
+  useExpiracaoPorInatividade(sessao.minutosInatividade, expirar);
+
+  // Qualquer resposta 401 (sessão expirada ou encerrada no servidor) volta à entrada.
+  const { admin, funcionario } = useMemo(
+    () => ({
+      admin: ehAdministrador ? criarAdminApi(sessao.token, aoEncerrar) : null,
+      funcionario: criarFuncionarioApi(sessao.token, aoEncerrar),
+    }),
+    [sessao.token, ehAdministrador, aoEncerrar],
+  );
 
   return (
     <div className="admin">
@@ -119,7 +198,7 @@ function Painel({ sessao, aoSair }: { sessao: Sessao; aoSair: () => void }) {
           <h1>Área restrita do totem</h1>
           <small>
             {modo === 'administrador'
-              ? 'Modo Administrador: o que você salvar entra em vigor quando o servidor for reiniciado.'
+              ? 'Modo Administrador: preço, foto, descrição, quantidade e disponibilidade dos produtos valem na hora; o resto entra em vigor quando o servidor for reiniciado.'
               : 'Modo Funcionário: o que você mudar vale na hora.'}
           </small>
         </div>
@@ -146,14 +225,14 @@ function Painel({ sessao, aoSair }: { sessao: Sessao; aoSair: () => void }) {
           <a href="/" target="_blank" rel="noreferrer">
             Abrir o totem
           </a>
-          <BotaoTouch onClick={aoSair}>Sair</BotaoTouch>
+          <BotaoTouch onClick={() => aoEncerrar(null)}>Sair</BotaoTouch>
         </div>
       </header>
 
-      {modo === 'administrador' && sessao.admin ? (
-        <PainelAdministrador api={sessao.admin} />
+      {modo === 'administrador' && admin ? (
+        <PainelAdministrador api={admin} />
       ) : (
-        <PainelFuncionario api={sessao.funcionario} />
+        <PainelFuncionario api={funcionario} />
       )}
     </div>
   );
@@ -241,6 +320,7 @@ function PainelAdministrador({ api }: { api: AdminApi }) {
           config={config}
           salvarConfig={salvarConfig}
           aoSalvar={atualizarPendencias}
+          aoMudarConfig={setConfig}
         />
       )}
     </>

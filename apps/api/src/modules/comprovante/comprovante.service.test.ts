@@ -49,8 +49,17 @@ async function pedidoComItem(): Promise<string> {
   return pedidoId;
 }
 
-const pagar = (pedidoId: string, formaPagamento: 'pix' | 'dinheiro' = 'pix') =>
-  escolherFormaPagamento({ pedidoId, formaPagamento, consumo: 'local' }, new MockPagamentoGateway());
+// US 15: a NFC-e é emitida na aprovação do pagamento, pelo emissor passado aqui.
+const pagar = (
+  pedidoId: string,
+  formaPagamento: 'credito' | 'dinheiro' = 'credito',
+  emissor = new MockEmissorFiscal(),
+) =>
+  escolherFormaPagamento(
+    { pedidoId, formaPagamento, consumo: 'local' },
+    new MockPagamentoGateway(),
+    emissor,
+  );
 
 describe('enviarComprovante', () => {
   it('emite a nota fiscal, notifica o cliente e marca o pedido como finalizado', async () => {
@@ -66,7 +75,12 @@ describe('enviarComprovante', () => {
     );
 
     expect(comprovante.notaFiscalUrl).toMatch(/^https:\/\/mock-fiscal\.local\/danfe\//);
-    expect(comprovante.destino).toEqual({ canal: 'email', email: 'cliente@teste.com' });
+    // O totem só vê o canal; o contato fica guardado no servidor para um reenvio.
+    expect(comprovante.destino).toEqual({ canal: 'email' });
+    expect(comprovantes.get(pedidoId)?.destino).toEqual({
+      canal: 'email',
+      email: 'cliente@teste.com',
+    });
     expect(notificacao.enviados).toHaveLength(1);
 
     const pedido = await obterCarrinho(pedidoId);
@@ -87,7 +101,7 @@ describe('enviarComprovante', () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(notificacao.enviados).toEqual([]);
-    expect(comprovantes.has(pedidoId)).toBe(false);
+    expect(comprovantes.get(pedidoId)?.destino).toBeUndefined();
 
     await consentir(pedidoId, { comprovante: false });
     await expect(
@@ -120,8 +134,8 @@ describe('CPF na nota fiscal', () => {
     const pedidoId = await pedidoComItem();
     await consentir(pedidoId, { cpf_nota: true });
     await informarCpfNota({ pedidoId, cpf: '123.456.789-09' });
-    await pagar(pedidoId);
     const emissor = new EmissorRegistrado();
+    await pagar(pedidoId, 'credito', emissor);
 
     const comprovante = await dispensarComprovante({ pedidoId }, emissor);
 
@@ -133,8 +147,8 @@ describe('CPF na nota fiscal', () => {
 
   it('sem CPF, a nota é emitida sem identificação do consumidor', async () => {
     const pedidoId = await pedidoComItem();
-    await pagar(pedidoId);
     const emissor = new EmissorRegistrado();
+    await pagar(pedidoId, 'credito', emissor);
 
     const comprovante = await dispensarComprovante({ pedidoId }, emissor);
 
@@ -147,8 +161,8 @@ describe('CPF na nota fiscal', () => {
     await consentir(pedidoId, { cpf_nota: true });
     await informarCpfNota({ pedidoId, cpf: '12345678909' });
     await consentir(pedidoId, { cpf_nota: false });
-    await pagar(pedidoId);
     const emissor = new EmissorRegistrado();
+    await pagar(pedidoId, 'credito', emissor);
 
     await dispensarComprovante({ pedidoId }, emissor);
     expect(emissor.recebidos[0].cpfNaNota).toBeUndefined();
@@ -171,8 +185,8 @@ describe('dispensarComprovante', () => {
 
   it('emite uma nota só, mesmo se chamado mais de uma vez', async () => {
     const pedidoId = await pedidoComItem();
-    await pagar(pedidoId);
     const emissor = new EmissorRegistrado();
+    await pagar(pedidoId, 'credito', emissor);
 
     const primeiro = await dispensarComprovante({ pedidoId }, emissor);
     const segundo = await dispensarComprovante({ pedidoId }, emissor);

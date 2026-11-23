@@ -11,17 +11,20 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
+  CartaoNfc,
   ClienteFidelidade,
+  Comprovante,
   ConfigTotem,
   Cupom,
   ItemCardapio,
   Pedido,
   RegistroConsentimento,
+  Venda,
 } from '@totem/shared';
 import { HttpError } from '../errors';
 
 // Persistência em disco do que o administrador configura (e do que muda a cada venda:
-// estoque, pontos, usos de cupom, números de pedido em aberto). Sem isso, reiniciar a
+// estoque, pontos, usos de cupom, pedidos que chegaram ao pagamento e seus comprovantes). Sem isso, reiniciar a
 // API devolveria o totem à configuração de fábrica.
 // Fica em apps/api/data (fora do git): estado.json + imagens/ + a trilha de auditoria do
 // consentimento. É um passo intermediário até o Postgres ser ligado — ver memory-store.ts.
@@ -31,6 +34,7 @@ const DIRETORIO = process.env.DATA_DIR
 const ARQUIVO_ESTADO = join(DIRETORIO, 'estado.json');
 const ARQUIVO_AUDITORIA = join(DIRETORIO, 'auditoria-consentimento.jsonl');
 const ARQUIVO_RASCUNHO = join(DIRETORIO, 'rascunho.json');
+const ARQUIVO_VENDAS = join(DIRETORIO, 'vendas.jsonl');
 const DIRETORIO_IMAGENS = join(DIRETORIO, 'imagens');
 
 // Os testes rodam só em memória, para não ler nem sobrescrever os dados reais.
@@ -42,6 +46,8 @@ export interface EstadoSalvo {
   cupons: Cupom[];
   clientesFidelidade: ClienteFidelidade[];
   pedidos: Pedido[];
+  comprovantes: Comprovante[];
+  cartoesNfc: CartaoNfc[];
 }
 
 export function carregarEstado(): Partial<EstadoSalvo> | null {
@@ -123,6 +129,28 @@ export function anexarAuditoriaConsentimento(registro: RegistroConsentimento): v
   }
   mkdirSync(DIRETORIO, { recursive: true });
   appendFileSync(ARQUIVO_AUDITORIA, `${JSON.stringify(registro)}\n`);
+}
+
+// ---------- Histórico de vendas (US 25) ----------
+
+// Uma venda por linha, só com acréscimos, como a auditoria: o relatório lê daqui, e os
+// pedidos em si deixam a memória depois de entregues.
+export function carregarVendas(): Venda[] {
+  if (!ATIVA || !existsSync(ARQUIVO_VENDAS)) {
+    return [];
+  }
+  return readFileSync(ARQUIVO_VENDAS, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((linha) => JSON.parse(linha));
+}
+
+export function anexarVenda(venda: Venda): void {
+  if (!ATIVA) {
+    return;
+  }
+  mkdirSync(DIRETORIO, { recursive: true });
+  appendFileSync(ARQUIVO_VENDAS, `${JSON.stringify(venda)}\n`);
 }
 
 // ---------- Imagens (fotos dos itens e logotipo) ----------

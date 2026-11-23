@@ -1,15 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { MockEmissorFiscal } from '../../integrations/api-fiscal';
-import { MockServicoNotificacao } from '../../integrations/notificacao';
-import { dispensarComprovante, enviarComprovante } from './comprovante.service';
+import { emissorFiscal, servicoNotificacao } from '../../integrations/instancias';
+import { dispensarComprovante, enviarComprovante, obterComprovante } from './comprovante.service';
 import type { DispensarComprovanteBody, EnviarComprovanteBody } from './comprovante.types';
 
 // Rotas do Épico 4 — Emissão de Comprovante.
 export async function comprovanteRoutes(app: FastifyInstance): Promise<void> {
-  // TODO: substituir a instanciação direta por injeção de dependência quando os
-  // provedores reais (ver integrations/api-fiscal e integrations/notificacao) existirem.
-  const emissorFiscal = new MockEmissorFiscal();
-  const servicoNotificacao = new MockServicoNotificacao();
+  // US 15: NFC-e do pedido pago (QR Code na tela de conclusão)
+  app.get<{ Params: { pedidoId: string } }>('/:pedidoId', async (request) => {
+    return obterComprovante(request.params.pedidoId);
+  });
 
   // US-08: Receber comprovante por e-mail/SMS
   // LGPD: dado pessoal — exige consentimento/criptografia (email/telefone no body)

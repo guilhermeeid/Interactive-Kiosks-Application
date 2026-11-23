@@ -9,3 +9,5 @@ export * from './Comprovante';
 export * from './ConfigTotem';
 export * from './Consentimento';
 export * from './Acesso';
+export * from './Relatorio';
+export * from './Nfc';

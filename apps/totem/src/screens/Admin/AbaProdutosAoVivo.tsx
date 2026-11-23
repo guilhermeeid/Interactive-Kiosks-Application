@@ -21,6 +21,7 @@ interface FormAoVivo {
   preco: string;
   descricao: string;
   imagemUrl: string | null;
+  estoque: string; // vazio = sem controle de quantidade
 }
 
 // Modo Funcionário (item 7): marca como esgotado (sem remover) e troca preço, foto e
@@ -72,6 +73,15 @@ export function AbaProdutosAoVivo({ api }: PropsAbaFuncionario) {
       if (precoCentavos !== produto.precoCentavos) mudanca.precoCentavos = precoCentavos;
       if (form.descricao !== produto.descricao) mudanca.descricao = form.descricao;
       if (form.imagemUrl !== (produto.imagemUrl ?? null)) mudanca.imagemUrl = form.imagemUrl;
+      // Combo não tem quantidade própria (vem dos itens dele).
+      if (!produto.componentes) {
+        const estoque = form.estoque.trim();
+        if (estoque && !/^\d+$/.test(estoque)) {
+          throw new Error('A quantidade deve ser um número inteiro (ou vazia, para não controlar)');
+        }
+        const novoEstoque = estoque ? Number(estoque) : null;
+        if (novoEstoque !== (produto.estoque ?? null)) mudanca.estoque = novoEstoque;
+      }
       if (Object.keys(mudanca).length > 0) {
         await api.atualizarProduto(produto.id, mudanca);
         setProdutos(await api.listarProdutos());
@@ -127,11 +137,12 @@ export function AbaProdutosAoVivo({ api }: PropsAbaFuncionario) {
                           preco: centavosParaReais(produto.precoCentavos),
                           descricao: produto.descricao,
                           imagemUrl: produto.imagemUrl ?? null,
+                          estoque: produto.estoque === undefined ? '' : String(produto.estoque),
                         },
                       })
                     }
                   >
-                    Preço, foto e descrição
+                    Preço, quantidade, foto e descrição
                   </BotaoTouch>
                 )}
               </div>
@@ -153,6 +164,16 @@ export function AbaProdutosAoVivo({ api }: PropsAbaFuncionario) {
                         onChange={(evento) => alterarForm({ preco: evento.target.value })}
                       />
                     </Campo>
+                    {!produto.componentes && (
+                      <Campo rotulo="Quantidade à venda" dica="Vazio = sem controle.">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={form.estoque}
+                          onChange={(evento) => alterarForm({ estoque: evento.target.value })}
+                        />
+                      </Campo>
+                    )}
                     <Campo rotulo="Descrição">
                       <input
                         type="text"

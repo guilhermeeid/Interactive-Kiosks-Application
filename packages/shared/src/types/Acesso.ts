@@ -18,3 +18,11 @@ export interface ResumoPendencias {
   produtos: number;
   cupons: number;
 }
+
+// Sessão da área restrita, aberta com o PIN. O token vai no cabeçalho `x-sessao`; a
+// sessão expira depois de `minutosInatividade` sem uso.
+export interface SessaoAcesso {
+  papel: PapelAcesso;
+  token: string;
+  minutosInatividade: number;
+}

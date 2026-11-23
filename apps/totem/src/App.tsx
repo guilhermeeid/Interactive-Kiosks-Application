@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useKioskMode } from './hooks/useKioskMode';
+import { useNfcNoTotem } from './hooks/useNfcNoTotem';
 import { useServidorReiniciado } from './hooks/useServidorReiniciado';
 import { useConfig } from './contexts/ConfigContext';
 import { usePedido, type EtapaFluxo } from './contexts/PedidoContext';
@@ -36,6 +37,8 @@ export function App() {
   const { etapaAtual } = usePedido();
   const { aparencia } = useConfig();
   const servidorReiniciado = useServidorReiniciado();
+  // Módulo NFC (opcional): leitor ligado por USB-C põe itens no carrinho.
+  const { nfcAtivo, aviso: avisoNfc } = useNfcNoTotem();
 
   // Item 7: o servidor reiniciou (mudanças do Administrador em vigor): o totem se
   // recarrega na tela inicial, sem interromper um cliente no meio do pedido.
@@ -48,10 +51,15 @@ export function App() {
   return (
     <div className="moldura">
       <div className="app">
-        {etapaAtual !== 'inicio' && <Cabecalho aparencia={aparencia} />}
+        {etapaAtual !== 'inicio' && <Cabecalho aparencia={aparencia} nfcAtivo={nfcAtivo} />}
         <main className="app__conteudo">
           <TelaAtual etapa={etapaAtual} />
         </main>
+        {avisoNfc && (
+          <p className="aviso-flutuante aviso-flutuante--nfc" role="status">
+            📶 {avisoNfc}
+          </p>
+        )}
       </div>
     </div>
   );

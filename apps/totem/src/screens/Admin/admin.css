@@ -603,3 +603,438 @@
   margin: 0 auto;
   display: block;
 }
+
+/* ---------- Relatório de vendas (US 25) ---------- */
+
+/* Cores dos gráficos (validadas sobre o cartão branco, inclusive para daltonismo):
+   azul para a série única; azul e laranja quando há duas partes; cinza para o resto. */
+.relatorio {
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-neutra: #b9b4ab;
+  --grade: #ece6dc;
+}
+
+/* Os filtros numa linha, acima de tudo o que eles recortam */
+.relatorio-filtros {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.relatorio-filtros .admin-campo {
+  min-width: 10rem;
+}
+
+.admin input[type='date'] {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.7rem;
+  border: 2px solid var(--cor-borda);
+  background: var(--cor-papel);
+  color: var(--cor-cafe);
+  font-family: var(--fonte-texto);
+  font-size: 1rem;
+}
+
+/* Recarregando: o relatório anterior fica, esmaecido, até o novo chegar */
+.relatorio--carregando .relatorio-numeros,
+.relatorio--carregando .relatorio-cartao {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.relatorio-vazio {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1.5rem;
+  border: 2px dashed var(--cor-borda);
+  border-radius: var(--raio);
+  text-align: center;
+}
+
+.relatorio-vazio strong {
+  font-family: var(--fonte-titulo);
+  font-size: 1.3rem;
+}
+
+.relatorio-vazio span {
+  color: var(--cor-cafe-suave);
+}
+
+/* Números do período: o faturamento em destaque e os demais ao lado */
+.relatorio-numeros {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: minmax(16rem, 2fr) repeat(3, minmax(9rem, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .relatorio-numeros {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.relatorio-destaque,
+.relatorio-numero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 1rem 1.25rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 1rem;
+  background: var(--cor-papel);
+}
+
+.relatorio-destaque span,
+.relatorio-numero span {
+  color: var(--cor-cafe-suave);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.relatorio-destaque strong {
+  font-family: var(--fonte-texto);
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.relatorio-numero strong {
+  font-family: var(--fonte-texto);
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+
+/* ---------- Cartões dos gráficos ---------- */
+
+.relatorio-cartao {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 1.25rem;
+  border: 2px solid var(--cor-borda);
+  border-radius: 1rem;
+  background: var(--cor-papel);
+  min-width: 0;
+}
+
+.relatorio-cartao__topo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.relatorio-cartao__topo h3 {
+  margin: 0;
+}
+
+.relatorio-cartao__tabela summary {
+  cursor: pointer;
+  color: var(--cor-cafe-suave);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.relatorio-cartao__tabela .admin-tabela {
+  margin-top: 0.75rem;
+}
+
+.relatorio-grade {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 1rem;
+}
+
+.relatorio-alternar {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.relatorio-alternar button {
+  min-height: 2.25rem;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.9rem;
+  box-shadow: none;
+}
+
+/* ---------- Colunas ao longo do tempo ---------- */
+
+.grafico-colunas {
+  position: relative;
+}
+
+.grafico-colunas svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.grafico__grade,
+.grafico__base {
+  stroke: var(--grade);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico__base {
+  stroke: #d9d1c4;
+}
+
+.grafico__eixo {
+  fill: var(--cor-cafe-suave);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grafico__valor {
+  fill: var(--cor-cafe);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.grafico__barra {
+  fill: var(--serie-1);
+  transition: opacity 0.1s ease;
+}
+
+.grafico-colunas:hover .grafico__barra:not(.grafico__barra--ativa) {
+  opacity: 0.55;
+}
+
+.grafico__alvo {
+  fill: transparent;
+  outline: none;
+}
+
+.grafico__alvo:focus-visible {
+  stroke: var(--cor-cafe);
+  stroke-width: 1.5;
+}
+
+/* Dica: o valor primeiro, em destaque; o rótulo depois */
+.grafico__dica {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.6rem;
+  background: var(--cor-cafe);
+  color: #fff;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+  box-shadow: var(--sombra);
+}
+
+.grafico__dica strong {
+  font-size: 1rem;
+}
+
+.grafico__dica span {
+  opacity: 0.85;
+}
+
+/* ---------- Barras deitadas (ranking e quebras) ---------- */
+
+.barras-deitadas {
+  /* Uma coluna de nomes, só tão larga quanto o maior nome da lista, e as barras
+     começando todas na mesma linha. */
+  display: grid;
+  grid-template-columns: fit-content(14rem) 1fr;
+  gap: 0.55rem 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Cada linha ocupa as duas colunas da lista (subgrid), para os nomes e as barras se
+   alinharem entre as linhas. */
+.barras-deitadas__linha {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 0.15rem 0.25rem;
+  border-radius: 0.5rem;
+}
+
+.barras-deitadas__linha:hover {
+  background: var(--cor-creme);
+}
+
+.barras-deitadas__rotulo {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barras-deitadas__trilho {
+  min-width: 0;
+  /* Espaço para o valor depois da ponta da maior barra */
+  padding-right: 6.5rem;
+}
+
+.barras-deitadas__regua {
+  position: relative;
+  display: block;
+  height: 16px;
+}
+
+/* Barra fina, base reta na esquerda e ponta arredondada na direita */
+.barras-deitadas__barra {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 0 4px 4px 0;
+  background: var(--serie-1);
+}
+
+.barras-deitadas__valor {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cor-cafe);
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Barra dividida (para comer aqui × para levar) ---------- */
+
+.barra-segmentada {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.barra-segmentada__barra {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+}
+
+.barra-segmentada__parte {
+  display: flex;
+  align-items: center;
+  min-width: 2px;
+  padding-left: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Texto sobre a cor: branco no azul, quase preto no laranja e no cinza */
+.serie-1 {
+  background: var(--serie-1);
+  color: #fff;
+}
+
+.serie-2 {
+  background: var(--serie-2);
+  color: #1a1a1a;
+}
+
+.serie-neutra {
+  background: var(--serie-neutra);
+  color: #1a1a1a;
+}
+
+.barra-segmentada__legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--cor-cafe-suave);
+  font-size: 0.9rem;
+}
+
+.barra-segmentada__legenda li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.barra-segmentada__amostra {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* Consulta de pedidos: número, dados, selo da nota e ações */
+.admin-linha--consulta {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.admin-consulta__dados {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.admin-consulta__dados small {
+  overflow-wrap: anywhere;
+}
+
+.admin-reenvio {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 2px dashed var(--cor-borda);
+}
+
+/* Categorias: arrastar e soltar para reordenar (vale na hora) */
+.admin-alca {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0.4rem 0.2rem;
+  color: var(--cor-cafe);
+}
+
+.admin-linha--categoria {
+  grid-template-columns: auto auto 1fr auto;
+}
+
+.admin-linha--arrastando {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.admin-linha--destino {
+  border-color: var(--cor-cafe);
+  box-shadow: 0 -4px 0 var(--cor-cafe);
+}
+
+.admin-linha--desativada {
+  opacity: 0.6;
+  background: var(--cor-creme);
+}
+
+@media (max-width: 720px) {
+  .admin-linha--categoria,
+  .admin-linha--consulta {
+    grid-template-columns: 1fr;
+  }
+}

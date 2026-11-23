@@ -14,6 +14,7 @@ import { ResumoPedido } from '../../components/ResumoPedido';
 import { TecladoNumerico } from '../../components/TecladoNumerico';
 import { formatarCpf, mascararCpf } from '../../utils/cpf';
 import { FORMAS_PAGAMENTO } from '../../utils/formasPagamento';
+import { PagamentoPix } from './PagamentoPix';
 
 // Tela 4 — Pagamento.
 // Item 11: antes de pagar, "Para comer aqui" ou "Para levar" (com uma opção desligada,
@@ -22,6 +23,7 @@ import { FORMAS_PAGAMENTO } from '../../utils/formasPagamento';
 // nenhum. Perguntado uma vez só (US 10); o consentimento é registrado antes de o CPF ir
 // para o pedido (US 29).
 // US-06: escolher a forma de pagamento. Dinheiro manda o cliente ao caixa (item 2).
+// US 11: Pix abre o QR Code dinâmico (ver PagamentoPix), tolerante a queda de conexão.
 // IMPORTANTE: esta tela nunca deve capturar ou armazenar dados de cartão — a
 // tokenização acontece no gateway/adquirente (ver apps/api/src/integrations/gateway-pagamento).
 // LGPD: dado pessoal — exige consentimento/criptografia (CPF digitado nesta tela).
@@ -44,6 +46,8 @@ export function PagamentoScreen() {
 
   const [erro, setErro] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
+  // Um Pix já em andamento (ex.: a tela foi reaberta) retoma o mesmo QR Code.
+  const [pixAberto, setPixAberto] = useState(pedido?.status === 'aguardando_pix');
 
   const cpfDaNota = mesmoCpf && clienteFidelidade ? clienteFidelidade.numeroFidelidade : cpf;
   const cpfPronto =
@@ -72,12 +76,21 @@ export function PagamentoScreen() {
     await informarCpfNota(pedidoId, cpfDaNota);
   }
 
+  async function concluirPagamento() {
+    await recarregarPedido().catch(() => undefined);
+    irParaEtapa('conclusao');
+  }
+
   async function pagar(forma: FormaPagamento) {
     if (!consumo) return;
     setProcessando(true);
     setErro(null);
     try {
       await registrarCpfNota();
+      if (forma === 'pix') {
+        setPixAberto(true);
+        return;
+      }
       const resultado = await escolherFormaPagamento(pedidoId, forma, consumo);
       const aprovado =
         resultado.status === 'autorizado' ||
@@ -86,8 +99,7 @@ export function PagamentoScreen() {
         setErro(`Pagamento ${resultado.status}`);
         return;
       }
-      await recarregarPedido();
-      irParaEtapa('conclusao');
+      await concluirPagamento();
     } catch (err) {
       setErro((err as Error).message);
       // Um pagamento recusado pode ter mudado o pedido (ex.: cupom que venceu).
@@ -98,6 +110,24 @@ export function PagamentoScreen() {
   }
 
   const formasAceitas = FORMAS_PAGAMENTO.filter((forma) => formasPagamento[forma.valor]);
+
+  if (pixAberto && consumo) {
+    return (
+      <div className="tela">
+        <h1 className="tela__titulo">{aparencia.paginas.pagamento.titulo}</h1>
+        <PagamentoPix
+          pedidoId={pedidoId}
+          consumo={consumo}
+          aoPago={concluirPagamento}
+          aoSair={(destino) => {
+            setPixAberto(false);
+            recarregarPedido().catch(() => undefined);
+            if (destino === 'carrinho') irParaEtapa('carrinho');
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="tela">

@@ -27,6 +27,13 @@ export interface CupomBody {
   ativo: boolean;
 }
 
+// Ordem e ativação das categorias (valem na hora).
+export interface OrganizarCategoriasBody {
+  ordem: string[]; // ids, na ordem das abas do totem
+  inativas: string[]; // ids das categorias desativadas
+  confirmarDesativacao?: boolean; // obrigatório para desativar categoria com itens
+}
+
 export interface ClienteBody {
   cpf: string; // LGPD: dado pessoal — exige consentimento/criptografia
   pontos: number;
@@ -42,4 +49,5 @@ export interface ProdutoAoVivoBody {
   precoCentavos?: number;
   descricao?: string;
   imagemUrl?: string | null; // null = tirar a foto
+  estoque?: number | null; // null = sem controle de quantidade
 }

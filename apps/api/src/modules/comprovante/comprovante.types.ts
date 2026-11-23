@@ -13,3 +13,13 @@ export interface DispensarComprovanteBody {
 }
 
 export type EnviarComprovanteResponse = Comprovante;
+
+// Reenvio pedido no balcão: para o contato que já recebeu o comprovante
+// (`contatoOriginal`) ou para um contato novo, com a autorização do cliente.
+export interface ReenviarComprovanteBody {
+  contatoOriginal?: boolean;
+  canal?: CanalComprovante;
+  email?: string; // LGPD: dado pessoal — exige consentimento/criptografia
+  telefone?: string; // LGPD: dado pessoal — exige consentimento/criptografia
+  autorizadoPeloCliente?: boolean;
+}

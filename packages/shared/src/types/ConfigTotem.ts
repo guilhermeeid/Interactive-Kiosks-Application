@@ -42,6 +42,9 @@ export interface CategoriaCardapio {
   icone?: string; // emoji da aba e dos itens sem foto/ícone próprio
   iconeImagemUrl?: string; // imagem pequena no lugar do emoji, na aba
   capaUrl?: string; // foto de capa, exibida acima dos itens quando a categoria está aberta
+  // `false` = desativada: some dos totens com os itens dela, sem apagar nada. Ausente =
+  // ativa. Ordem e ativação valem na hora (os totens veem em até 30 segundos).
+  ativa?: boolean;
 }
 
 // Onde ficam as abas de categoria na tela do cardápio.

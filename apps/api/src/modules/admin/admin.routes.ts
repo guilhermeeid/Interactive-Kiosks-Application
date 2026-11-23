@@ -3,6 +3,14 @@ import type { ConfigTotem } from '@totem/shared';
 import type { FastifyInstance } from 'fastify';
 import { lerImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
+import {
+  cancelarCadastro,
+  iniciarCadastro,
+  listarCartoes,
+  obterCadastro,
+  removerCartao,
+} from '../nfc/nfc.service';
+import { gerarRelatorioVendas } from '../relatorio/relatorio.service';
 import { exigirPapel } from './acesso';
 import {
   atualizarConfig,
@@ -22,10 +30,17 @@ import {
   obterConfig,
   obterConfigAdmin,
   obterPendencias,
+  organizarCategorias,
   removerCliente,
   removerProduto,
 } from './admin.service';
-import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
+import type {
+  ClienteBody,
+  CupomBody,
+  EnviarImagemBody,
+  OrganizarCategoriasBody,
+  ProdutoBody,
+} from './admin.types';
 
 // Identifica esta execução do servidor. Quando muda, o servidor foi reiniciado (e as
 // mudanças do Administrador entraram em vigor): o totem se recarrega na próxima vez que
@@ -56,9 +71,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-// Rotas do modo Administrador (PIN ADMIN_PIN no cabeçalho `x-pin`). Configuração,
-// produtos e cupons ficam pendentes até o servidor reiniciar; clientes de fidelidade
-// mudam na hora.
+// Rotas do modo Administrador (sessão aberta com o ADMIN_PIN, no cabeçalho `x-sessao`).
+// Configuração, produtos e cupons ficam pendentes até o servidor reiniciar; clientes de
+// fidelidade e a ordem/ativação das categorias mudam na hora.
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   exigirPapel(app, ['administrador']);
 
@@ -75,6 +90,10 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   });
   app.put<{ Body: ConfigTotem }>('/config', async (request) => {
     return atualizarConfig(request.body);
+  });
+  // Ordem (arrastar e soltar) e ativação das categorias: valem na hora
+  app.put<{ Body: OrganizarCategoriasBody }>('/categorias/organizacao', async (request) => {
+    return organizarCategorias(request.body);
   });
 
   // A imagem chega já reduzida pelo navegador, em base64; o limite de corpo é maior
@@ -136,5 +155,28 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // US 29: trilha de auditoria do consentimento
   app.get('/consentimentos', async () => {
     return listarConsentimentos();
+  });
+
+  // Módulo NFC: cartões travados, ligados a um item pelo número de série
+  app.get('/nfc/cartoes', async () => listarCartoes());
+  app.delete<{ Params: { numeroSerie: string } }>(
+    '/nfc/cartoes/:numeroSerie',
+    async (request, reply) => {
+      await removerCartao(request.params.numeroSerie);
+      return reply.status(204).send();
+    },
+  );
+  app.post<{ Body: { itemCardapioId?: unknown } }>('/nfc/cadastro', async (request) =>
+    iniciarCadastro(request.body?.itemCardapioId),
+  );
+  app.get('/nfc/cadastro', async () => obterCadastro());
+  app.delete('/nfc/cadastro', async (_request, reply) => {
+    await cancelarCadastro();
+    return reply.status(204).send();
+  });
+
+  // US 25: relatório de vendas (período, categoria, forma de pagamento e consumo na query)
+  app.get<{ Querystring: Record<string, unknown> }>('/relatorio/vendas', async (request) => {
+    return gerarRelatorioVendas(request.query);
   });
 }

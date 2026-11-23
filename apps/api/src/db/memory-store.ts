@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import type {
+  CartaoNfc,
   ClienteFidelidade,
   Comprovante,
   ConfigTotem,
@@ -10,14 +11,17 @@ import type {
   Pedido,
   RegistroConsentimento,
   ResultadoAplicacaoCupom,
+  Venda,
 } from '@totem/shared';
 import { HttpError } from '../errors';
 import { mesclarConfig } from './config-padrao';
 import {
   anexarAuditoriaConsentimento,
+  anexarVenda,
   carregarAuditoriaConsentimento,
   carregarEstado,
   carregarRascunho,
+  carregarVendas,
   salvarEstado,
   salvarRascunho,
   type PendenciasLista,
@@ -96,7 +100,12 @@ export const clientesFidelidade = new Map<string, ClienteFidelidade>(
   ).map((cliente) => [cliente.numeroFidelidade, cliente]),
 );
 
-export const comprovantes = new Map<string, Comprovante>();
+// Comprovantes (NFC-e e envio por e-mail/SMS) de cada pedido pago. Guardados em disco
+// para a consulta de pedidos e o reenvio do comprovante.
+// LGPD: dado pessoal — exige consentimento/criptografia (e-mail/telefone do destino)
+export const comprovantes = new Map<string, Comprovante>(
+  (salvo?.comprovantes ?? []).map((comprovante) => [comprovante.pedidoId, comprovante]),
+);
 
 export const cupons = new Map<string, Cupom>(
   (
@@ -125,6 +134,12 @@ export const cupons = new Map<string, Cupom>(
   ).map((cupom) => [cupom.codigo, cupom]),
 );
 
+// Módulo NFC: cartões travados, ligados a um item pelo número de série (aa:bb:cc:dd).
+// Cartões da loja, não do cliente: número de série desconhecido não é guardado.
+export const cartoesNfc = new Map<string, CartaoNfc>(
+  (salvo?.cartoesNfc ?? []).map((cartao) => [cartao.numeroSerie, cartao]),
+);
+
 // US 29: trilha de auditoria do consentimento. Só recebe acréscimos; cada registro
 // também vai para o arquivo de auditoria em disco no momento em que é criado.
 export const registrosConsentimento: RegistroConsentimento[] = carregarAuditoriaConsentimento();
@@ -134,21 +149,60 @@ export function registrarAuditoriaConsentimento(registro: RegistroConsentimento)
   anexarAuditoriaConsentimento(registro);
 }
 
-// Grava em disco o estado que precisa sobreviver a um reinício. Dos pedidos, só os que
-// seguram um número (no caixa, pagos ou ainda não entregues).
+// US 25: histórico de vendas, só com acréscimos (também gravado em disco a cada venda).
+export const vendas: Venda[] = carregarVendas();
+
+export function registrarVenda(venda: Venda): void {
+  vendas.push(venda);
+  anexarVenda(venda);
+}
+
+// Pedido que chegou ao pagamento (ganhou número ou gerou um Pix): fica no histórico da
+// consulta de pedidos e sobrevive a um reinício. Carrinhos só em montagem, não.
+export function pedidoNoHistorico(pedido: Pedido): boolean {
+  return pedido.numero !== undefined || (pedido.transacoesPix?.length ?? 0) > 0;
+}
+
+// Grava em disco o estado que precisa sobreviver a um reinício.
 export function persistir(): void {
   salvarEstado({
     config,
     itensCardapio,
     cupons: [...cupons.values()],
     clientesFidelidade: [...clientesFidelidade.values()],
-    pedidos: [...pedidos.values()].filter(pedidoAguardaRetirada),
+    pedidos: [...pedidos.values()].filter(pedidoNoHistorico),
+    comprovantes: [...comprovantes.values()],
+    cartoesNfc: [...cartoesNfc.values()],
   });
 }
 
 // ---------- Mudanças pendentes do Administrador ----------
-// O Administrador muda tudo, mas o que ele salva só entra em vigor quando o servidor é
-// reiniciado. O Funcionário muda só alguns campos dos produtos, e isso vale na hora.
+// O Administrador muda tudo; o que ele salva só entra em vigor quando o servidor é
+// reiniciado, menos os campos "ao vivo" dos produtos (abaixo), que valem na hora em
+// qualquer modo. O Funcionário muda só esses campos.
+
+// US 34: preço, foto, descrição, quantidade e disponibilidade valem na hora — os totens
+// veem na próxima releitura do cardápio (até 30 segundos).
+export const CAMPOS_AO_VIVO: readonly string[] = [
+  'precoCentavos',
+  'imagemUrl',
+  'descricao',
+  'estoque',
+  'disponivel',
+];
+
+// Aplica no produto em vigor as mudanças (null tira o campo) e grava.
+export function mudarProdutoAoVivo(item: ItemCardapio, mudancas: Record<string, unknown>): void {
+  const registro = item as unknown as Record<string, unknown>;
+  for (const [campo, valor] of Object.entries(mudancas)) {
+    if (valor === null) {
+      delete registro[campo];
+    } else {
+      registro[campo] = valor;
+    }
+  }
+  persistir();
+}
 
 function pendenciasVazias<T>(): PendenciasLista<T> {
   return { novos: [], alterados: {}, removidos: [] };
@@ -288,9 +342,12 @@ export function obterOuCriarPedido(pedidoId: string): Pedido {
   return pedido;
 }
 
-// Depois de pago (ou enviado ao caixa), o pedido não aceita mais itens, cupom, pontos
-// nem troca de CPF.
+// Depois de pago (ou enviado ao caixa, ou com um Pix na tela), o pedido não aceita mais
+// itens, cupom, pontos nem troca de CPF.
 export function exigirPedidoEmMontagem(pedido: Pedido): void {
+  if (pedido.status === 'aguardando_pix') {
+    throw new HttpError(409, 'Há um Pix em andamento. Cancele-o para alterar o pedido.');
+  }
   if (pedido.status !== 'em_montagem') {
     throw new HttpError(409, 'Este pedido já foi pago e não pode mais ser alterado');
   }
@@ -359,11 +416,17 @@ export function estoqueEfetivo(item: ItemCardapio): number | undefined {
   return maximo;
 }
 
+// Categoria desativada pelo administrador: some dos totens e os itens dela não podem ser
+// comprados (vale na hora).
+export function categoriaAtiva(id: string): boolean {
+  return config.categorias.find((categoria) => categoria.id === id)?.ativa !== false;
+}
+
 // US 26 / US 34: um item pode ser comprado se está disponível e, com controle de
 // quantidade, ainda restam unidades. Um combo também precisa de todos os seus itens
 // disponíveis: assim que um deles esgota, o combo esgota junto.
 export function itemDisponivel(item: ItemCardapio): boolean {
-  if (!item.disponivel) {
+  if (!item.disponivel || !categoriaAtiva(item.categoria)) {
     return false;
   }
   if (item.componentes) {

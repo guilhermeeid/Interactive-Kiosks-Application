@@ -10,6 +10,7 @@
   "scripts": {
     "dev:totem": "npm run dev --workspace apps/totem",
     "dev:api": "npm run dev --workspace apps/api",
+    "nfc:conectar": "node scripts/conectar-leitor-nfc.mjs",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint . --ext .ts,.tsx",

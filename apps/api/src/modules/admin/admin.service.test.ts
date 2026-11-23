@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ConfigTotem } from '@totem/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { criarConfigPadrao } from '../../db/config-padrao';
 import {
   aplicarRascunho,
@@ -32,7 +32,9 @@ import {
   listarCupons,
   listarProdutos,
   obterConfigAdmin,
+  obterConfig,
   obterPendencias,
+  organizarCategorias,
   removerCliente,
   removerProduto,
   validarConfig,
@@ -221,6 +223,63 @@ describe('atualizarConfig', () => {
   });
 });
 
+// Ordem (arrastar e soltar) e ativação das categorias valem na hora.
+describe('organização das categorias', () => {
+  const ids = () => config.categorias.map((categoria) => categoria.id);
+
+  it('a nova ordem vale na hora nos totens, sem reiniciar', async () => {
+    const invertida = [...ids()].reverse();
+    await organizarCategorias({ ordem: invertida, inativas: [] });
+    expect(ids()).toEqual(invertida);
+    expect((await obterConfig()).categorias.map((c) => c.id)).toEqual(invertida);
+    const primeira = (await listarCardapio({}))[0];
+    expect(invertida.indexOf(primeira.categoria)).toBe(
+      Math.min(...(await listarCardapio({})).map((item) => invertida.indexOf(item.categoria))),
+    );
+  });
+
+  it('desativar categoria com itens exige confirmação explícita', async () => {
+    const tentativa = organizarCategorias({ ordem: ids(), inativas: ['lanches'] });
+    await expect(tentativa).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFIRMAR_DESATIVACAO',
+      message: expect.stringMatching(/"Lanches" \(\d+ itens\)/),
+    });
+    expect(config.categorias.find((c) => c.id === 'lanches')?.ativa).toBeUndefined();
+
+    await organizarCategorias({ ordem: ids(), inativas: ['lanches'], confirmarDesativacao: true });
+    // Some dos totens, com os itens, e o carrinho não aceita mais esses itens.
+    expect((await obterConfig()).categorias.some((c) => c.id === 'lanches')).toBe(false);
+    expect((await listarCardapio({})).some((item) => item.categoria === 'lanches')).toBe(false);
+    await expect(
+      adicionarItem({
+        pedidoId: randomUUID(),
+        item: { itemCardapioId: 'lanche-classico', nome: 'x', quantidade: 1 },
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    // O Administrador continua vendo a categoria, marcada como desativada.
+    expect((await obterConfigAdmin()).categorias.find((c) => c.id === 'lanches')?.ativa).toBe(false);
+
+    // Reativar não pede confirmação; salvar o resto da configuração não reativa.
+    await atualizarConfig(await obterConfigAdmin());
+    expect(rascunho.config?.categorias.find((c) => c.id === 'lanches')?.ativa).toBe(false);
+    await organizarCategorias({ ordem: ids(), inativas: [] });
+    expect((await noCardapio('lanche-classico'))?.disponivel).toBe(true);
+  });
+
+  it('categoria sem itens é desativada sem confirmação; não deixa todas desativadas', async () => {
+    const nova = criarConfigPadrao();
+    nova.categorias = [...nova.categorias, { id: 'vazia', nome: 'Vazia' }];
+    Object.assign(config, { categorias: nova.categorias });
+    await expect(
+      organizarCategorias({ ordem: ids(), inativas: ['vazia'] }),
+    ).resolves.toBeDefined();
+    await expect(
+      organizarCategorias({ ordem: ids(), inativas: ids(), confirmarDesativacao: true }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
 describe('produtos', () => {
   const produto: ProdutoBody = {
     nome: 'Pudim',
@@ -261,6 +320,62 @@ describe('produtos', () => {
       nome: 'Lanche Duplo Especial',
       precoCentavos: 2690,
     });
+  });
+
+  // Pedido de revisão (US 34): preço, foto, descrição, quantidade e disponibilidade
+  // valem na hora também no modo Administrador; o resto espera o reinício.
+  it('preço, descrição, quantidade e disponibilidade valem na hora; nome e categoria, no reinício', async () => {
+    const atual = itensCardapio.find((item) => item.id === 'batata-frita')!;
+    const refri = itensCardapio.find((item) => item.id === 'refrigerante-lata')!;
+    // Os produtos mudam de verdade (ao vivo): voltam ao que eram no fim do teste.
+    const originais = [structuredClone(atual), structuredClone(refri)];
+    onTestFinished(() => {
+      for (const original of originais) {
+        const item = itensCardapio.find((produto) => produto.id === original.id)!;
+        for (const campo of Object.keys(item))
+          delete (item as unknown as Record<string, unknown>)[campo];
+        Object.assign(item, original);
+      }
+    });
+    const editado = await atualizarProduto('batata-frita', {
+      nome: 'Batata Rústica',
+      descricao: 'Porção com alecrim',
+      categoria: 'lanches',
+      precoCentavos: 1190,
+      icone: atual.icone ?? null,
+      imagemUrl: null,
+      estoque: 12,
+      disponivel: false,
+    });
+
+    expect(await noCardapio('batata-frita')).toMatchObject({
+      nome: 'Batata Frita',
+      categoria: 'acompanhamentos',
+      descricao: 'Porção com alecrim',
+      precoCentavos: 1190,
+      estoque: 12,
+      disponivel: false,
+    });
+    expect(rascunho.produtos.alterados['batata-frita']).toEqual({
+      nome: 'Batata Rústica',
+      categoria: 'lanches',
+    });
+    expect(editado).toMatchObject({
+      nome: 'Batata Rústica',
+      precoCentavos: 1190,
+      pendente: 'alterado',
+    });
+
+    // Mudar só um campo ao vivo não deixa nada pendente.
+    await atualizarProduto('refrigerante-lata', {
+      nome: 'Refrigerante (lata)',
+      descricao: '350ml',
+      categoria: 'bebidas',
+      precoCentavos: 750,
+      disponivel: true,
+    });
+    expect((await noCardapio('refrigerante-lata'))?.precoCentavos).toBe(750);
+    expect(rascunho.produtos.alterados['refrigerante-lata']).toBeUndefined();
   });
 
   it('remover fica pendente e só tira o produto no reinício', async () => {
@@ -443,6 +558,29 @@ describe('cupons', () => {
     await expect(
       criarCupom({ codigo: 'NATAL25', tipoDesconto: 'percentual', valor: 5, ativo: true }),
     ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('recusa datas inconsistentes: fim antes do início, igual a ele ou já passado', async () => {
+    const base: CupomBody = { codigo: 'DATAS', tipoDesconto: 'percentual', valor: 10, ativo: true };
+    await expect(
+      criarCupom({ ...base, validoDe: '2099-02-01T00:00', validoAte: '2099-01-01T00:00' }),
+    ).rejects.toThrow(/depois do início/);
+    await expect(
+      criarCupom({ ...base, validoDe: '2099-01-01T00:00', validoAte: '2099-01-01T00:00' }),
+    ).rejects.toThrow(/depois do início/);
+    await expect(criarCupom({ ...base, validoAte: '2020-01-01T00:00' })).rejects.toThrow(
+      /já passou/,
+    );
+    // Um cupom já vencido pode ter outro campo editado sem mudar a data.
+    await expect(
+      atualizarCupom('INVALIDO', {
+        ...base,
+        codigo: 'INVALIDO',
+        validoDe: '2020-01-01T00:00:00-03:00',
+        validoAte: '2020-12-31T23:59:59-03:00',
+        valor: 20,
+      }),
+    ).resolves.toMatchObject({ valor: 20 });
   });
 
   it('editar preserva os usos contados nas vendas; excluir fica pendente', async () => {

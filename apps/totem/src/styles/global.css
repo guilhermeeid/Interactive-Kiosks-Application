@@ -1478,3 +1478,78 @@ input:disabled {
 .leitor-codigo__falha .erro {
   margin: 0 0 0.5rem;
 }
+
+/* ---------- Pix (US 11) e NFC-e na tela (US 15) ---------- */
+
+.pix {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.pix .codigo-qr {
+  width: min(22rem, 70vw);
+  height: min(22rem, 70vw);
+}
+
+.pix__valor {
+  margin: 0;
+  font-family: var(--fonte-titulo);
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--cor-preco);
+}
+
+.pix__prazo {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.pix__prazo--fim {
+  color: var(--cor-perigo);
+}
+
+.pix .tela__acoes {
+  justify-self: stretch;
+}
+
+.nota-fiscal {
+  margin-top: 1.25rem;
+  text-align: left;
+}
+
+.nota-fiscal__corpo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.nota-fiscal__corpo p {
+  margin: 0 0 0.4rem;
+}
+
+.nota-fiscal .codigo-qr {
+  width: 11rem;
+  height: 11rem;
+}
+
+/* ---------- Módulo NFC (leitor por USB-C) ---------- */
+
+.cabecalho__nfc {
+  margin-left: auto;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--cor-ketchup-texto);
+  color: var(--cor-ketchup);
+  font-weight: 700;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+/* Fica acima do aviso de cada tela, para não se sobreporem. */
+.aviso-flutuante--nfc {
+  bottom: 11rem;
+}

@@ -15,7 +15,7 @@ const gateway = new MockPagamentoGateway();
 
 const pagar = (
   pedidoId: string,
-  formaPagamento: FormaPagamento = 'pix',
+  formaPagamento: FormaPagamento = 'credito',
   // null = o cliente não escolheu ("undefined" cairia no valor padrão do parâmetro)
   consumo: ConsumoPedido | null = 'local',
 ) => escolherFormaPagamento({ pedidoId, formaPagamento, consumo: consumo ?? undefined }, gateway);
@@ -71,7 +71,7 @@ describe('escolherFormaPagamento', () => {
     expect(resultado.valorCentavos).toBe(1890 - Math.round(1890 * 0.1));
     const pedido = await obterCarrinho(pedidoId);
     expect(pedido.status).toBe('pago');
-    expect(pedido.formaPagamento).toBe('pix');
+    expect(pedido.formaPagamento).toBe('credito');
   });
 
   it('dá ao pedido pago um número de três dígitos', async () => {
@@ -87,8 +87,12 @@ describe('escolherFormaPagamento', () => {
     });
 
     const pedidoId = await pedidoComLanche();
-    await pagar(pedidoId);
-    await expect(pagar(pedidoId)).rejects.toMatchObject({ statusCode: 409 });
+    const primeiro = await pagar(pedidoId);
+    // US 11 (reconexão): repetir a mesma forma devolve o pagamento já aprovado, sem
+    // nova cobrança; outra forma é recusada.
+    const repetido = await pagar(pedidoId);
+    expect(repetido).toMatchObject({ status: 'autorizado', transacaoId: primeiro.transacaoId });
+    await expect(pagar(pedidoId, 'debito')).rejects.toMatchObject({ statusCode: 409 });
   });
 
   it('conta o uso do cupom só quando o pagamento é aprovado', async () => {
@@ -122,25 +126,25 @@ describe('escolherFormaPagamento', () => {
 describe('para comer aqui ou para levar', () => {
   it('é obrigatório escolher quando a loja oferece os dois, e fica no pedido', async () => {
     const pedidoId = await pedidoComLanche();
-    await expect(pagar(pedidoId, 'pix', null)).rejects.toMatchObject({
+    await expect(pagar(pedidoId, 'credito', null)).rejects.toMatchObject({
       statusCode: 400,
       message: 'Escolha se o pedido é para comer aqui ou para levar',
     });
     expect((await obterCarrinho(pedidoId)).status).toBe('em_montagem');
 
-    await pagar(pedidoId, 'pix', 'viagem');
+    await pagar(pedidoId, 'credito', 'viagem');
     expect((await obterCarrinho(pedidoId)).consumo).toBe('viagem');
   });
 
   it('com uma opção desligada, a outra vale sozinha', async () => {
     config.consumo = { local: false, viagem: true }; // só drive / para levar
     const pedidoId = await pedidoComLanche();
-    await pagar(pedidoId, 'pix', null);
+    await pagar(pedidoId, 'credito', null);
     expect((await obterCarrinho(pedidoId)).consumo).toBe('viagem');
 
     config.consumo = { local: true, viagem: false }; // sem embalagem para viagem
     const outro = await pedidoComLanche();
-    await pagar(outro, 'pix', 'viagem');
+    await pagar(outro, 'credito', 'viagem');
     expect((await obterCarrinho(outro)).consumo).toBe('local');
   });
 });
@@ -163,7 +167,8 @@ describe('formas de pagamento definidas pelo administrador', () => {
         message: 'Forma de pagamento indisponível',
       });
     }
-    expect((await pagar(pedidoId, 'pix')).status).toBe('autorizado');
+    // Pix gera o QR Code e espera a confirmação do banco.
+    expect((await pagar(pedidoId, 'pix')).status).toBe('pendente');
   });
 
   it('aceita vale-refeição e vale-alimentação como formas próprias', async () => {
@@ -233,7 +238,7 @@ describe('pagamento em dinheiro', () => {
 
   it('só recebe ou cancela pedido que está aguardando o caixa', async () => {
     const pago = await pedidoComLanche();
-    await pagar(pago, 'pix');
+    await pagar(pago, 'credito');
     await expect(receberNoCaixa(pago)).rejects.toMatchObject({ statusCode: 404 });
     await expect(cancelarNoCaixa(pago)).rejects.toMatchObject({ statusCode: 404 });
 

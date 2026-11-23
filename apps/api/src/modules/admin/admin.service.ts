@@ -17,6 +17,7 @@ import type {
   TextoPagina,
 } from '@totem/shared';
 import {
+  CAMPOS_AO_VIVO,
   clientesFidelidade,
   config,
   cupons,
@@ -24,6 +25,7 @@ import {
   diferencas,
   itensCardapio,
   listaComPendencias,
+  mudarProdutoAoVivo,
   persistir,
   persistirRascunho,
   rascunho,
@@ -33,7 +35,13 @@ import { salvarImagem } from '../../db/persistencia';
 import { HttpError } from '../../errors';
 import { problemaNoDesconto, situacaoCupom } from '../cupom/cupom.service';
 import { cpfValido, limparCpf } from '../identificacao/cpf';
-import type { ClienteBody, CupomBody, EnviarImagemBody, ProdutoBody } from './admin.types';
+import type {
+  ClienteBody,
+  CupomBody,
+  EnviarImagemBody,
+  OrganizarCategoriasBody,
+  ProdutoBody,
+} from './admin.types';
 import {
   booleano,
   centavosOpcional,
@@ -51,7 +59,8 @@ import {
 // Regras do modo Administrador. Tudo o que entra aqui vem de um formulário e é validado
 // campo a campo. Item 7: o que o Administrador salva — configuração, produtos e cupons —
 // fica pendente e só entra em vigor quando o servidor é reiniciado (ver
-// db/memory-store.ts, `aplicarRascunho`). Por isso as listas daqui mostram como tudo vai
+// db/memory-store.ts, `aplicarRascunho`). A exceção são preço, foto, descrição,
+// quantidade e disponibilidade de um produto que já está à venda: valem na hora (US 34). Por isso as listas daqui mostram como tudo vai
 // ficar depois do reinício, com a marca do que ainda está pendente. Clientes de
 // fidelidade são dados, não configuração, e mudam na hora.
 
@@ -120,9 +129,10 @@ export async function descartarPendencias(): Promise<void> {
 
 // ---------- Configuração (aparência, categorias, fidelidade, pagamento, cupons) ----------
 
-// A configuração em vigor, lida pelo totem ao iniciar.
+// A configuração em vigor, lida pelo totem ao iniciar (e relida de tempos em tempos,
+// para a ordem e a ativação das categorias). Categorias desativadas não vão aos totens.
 export async function obterConfig(): Promise<ConfigTotem> {
-  return config;
+  return { ...config, categorias: config.categorias.filter((c) => c.ativa !== false) };
 }
 
 // O que o Administrador vê e edita: a configuração pendente, se houver.
@@ -139,16 +149,20 @@ function validarCategorias(entrada: unknown): CategoriaCardapio[] {
   }
 
   const atuais = configPosReinicio().categorias;
-  const categorias = entrada.map((categoria: Partial<CategoriaCardapio>): CategoriaCardapio => ({
-    // Só ids que já existem são mantidos; categoria nova recebe um id gerado aqui.
-    id: atuais.some((atual) => atual.id === categoria?.id)
-      ? (categoria.id as string)
-      : randomUUID(),
-    nome: texto(categoria?.nome, 'Nome da categoria', 30),
-    icone: textoOpcional(categoria?.icone, 'Ícone da categoria', 8),
-    iconeImagemUrl: imagemOpcional(categoria?.iconeImagemUrl, 'Ícone da categoria'),
-    capaUrl: imagemOpcional(categoria?.capaUrl, 'Capa da categoria'),
-  }));
+  const categorias = entrada.map((categoria: Partial<CategoriaCardapio>): CategoriaCardapio => {
+    const atual = atuais.find((existente) => existente.id === categoria?.id);
+    return compactar({
+      // Só ids que já existem são mantidos; categoria nova recebe um id gerado aqui.
+      id: atual ? atual.id : randomUUID(),
+      nome: texto(categoria?.nome, 'Nome da categoria', 30),
+      icone: textoOpcional(categoria?.icone, 'Ícone da categoria', 8),
+      iconeImagemUrl: imagemOpcional(categoria?.iconeImagemUrl, 'Ícone da categoria'),
+      capaUrl: imagemOpcional(categoria?.capaUrl, 'Capa da categoria'),
+      // Ativar/desativar só pelo `organizarCategorias`, que pede confirmação e vale na
+      // hora; aqui a situação atual é mantida.
+      ativa: atual?.ativa === false ? false : undefined,
+    });
+  });
 
   const nomes = categorias.map((categoria) => categoria.nome.toLowerCase());
   if (new Set(nomes).size !== nomes.length) {
@@ -259,6 +273,62 @@ export function validarConfig(entrada: Partial<ConfigTotem> | undefined): Config
     cuponsHabilitados: booleano(entrada?.cuponsHabilitados, 'Aceitar cupons'),
     urlTermos: urlOpcional(entrada?.urlTermos, 'Endereço dos Termos e Condições'),
   };
+}
+
+// Ordem e ativação das categorias valem na hora (os totens veem em até 30 segundos),
+// diferente do resto da configuração. `ordem` traz os ids na ordem desejada (ids
+// desconhecidos são ignorados; categorias fora da lista vão para o fim). Desativar uma
+// categoria que tem itens exige `confirmarDesativacao: true`: sem isso, a resposta é 409
+// com o código CONFIRMAR_DESATIVACAO e a mensagem do que vai sumir dos totens.
+export async function organizarCategorias(body: OrganizarCategoriasBody): Promise<ConfigTotem> {
+  if (!Array.isArray(body?.ordem) || !Array.isArray(body?.inativas)) {
+    throw new HttpError(400, 'Informe a ordem e as categorias desativadas');
+  }
+  const ordem = body.ordem.filter((id): id is string => typeof id === 'string');
+  const inativas = new Set(body.inativas.filter((id): id is string => typeof id === 'string'));
+
+  const organizar = (categorias: CategoriaCardapio[]): CategoriaCardapio[] => {
+    const posicao = (id: string) => {
+      const indice = ordem.indexOf(id);
+      return indice === -1 ? ordem.length + categorias.findIndex((c) => c.id === id) : indice;
+    };
+    return [...categorias]
+      .sort((a, b) => posicao(a.id) - posicao(b.id))
+      .map((categoria) => compactar({ ...categoria, ativa: inativas.has(categoria.id) ? false : undefined }));
+  };
+
+  const atuais = configPosReinicio().categorias;
+  const organizadas = organizar(atuais);
+  if (organizadas.every((categoria) => categoria.ativa === false)) {
+    throw new HttpError(400, 'Deixe pelo menos uma categoria ativa');
+  }
+
+  const desativadasComItens = atuais
+    .filter((categoria) => categoria.ativa !== false && inativas.has(categoria.id))
+    .map((categoria) => ({
+      nome: categoria.nome,
+      itens: produtosQueFicam().filter((produto) => produto.categoria === categoria.id).length,
+    }))
+    .filter(({ itens }) => itens > 0);
+  if (desativadasComItens.length > 0 && body.confirmarDesativacao !== true) {
+    const descricao = desativadasComItens
+      .map(({ nome, itens }) => `"${nome}" (${itens} ${itens === 1 ? 'item' : 'itens'})`)
+      .join(', ');
+    throw new HttpError(
+      409,
+      `Desativar ${descricao}? Os itens deixam de aparecer e de poder ser comprados nos ` +
+        'totens até a categoria ser reativada. Nada é apagado.',
+      'CONFIRMAR_DESATIVACAO',
+    );
+  }
+
+  config.categorias = organizar(config.categorias);
+  persistir();
+  if (rascunho.config) {
+    rascunho.config.categorias = organizar(rascunho.config.categorias);
+    persistirRascunho();
+  }
+  return configPosReinicio();
 }
 
 // Fica pendente até o servidor reiniciar.
@@ -378,13 +448,19 @@ export async function atualizarProduto(
   if (!atual) {
     throw new HttpError(404, 'Produto não encontrado');
   }
-  // Só os campos que o administrador mudou ficam pendentes; o resto segue o que está em
-  // vigor (inclusive o que o funcionário mudar até o reinício).
-  const mudancas = diferencas(atual, produto);
-  if (Object.keys(mudancas).length === 0) {
+  // Só os campos que o administrador mudou contam. Preço, foto, descrição, quantidade e
+  // disponibilidade valem na hora; os demais (nome, categoria, ícone, itens do combo)
+  // ficam pendentes até o reinício.
+  const mudancas = Object.entries(diferencas(atual, produto));
+  const aoVivo = mudancas.filter(([campo]) => CAMPOS_AO_VIVO.includes(campo));
+  const pendentes = mudancas.filter(([campo]) => !CAMPOS_AO_VIVO.includes(campo));
+  if (aoVivo.length > 0) {
+    mudarProdutoAoVivo(atual, Object.fromEntries(aoVivo));
+  }
+  if (pendentes.length === 0) {
     delete rascunho.produtos.alterados[id];
   } else {
-    rascunho.produtos.alterados[id] = mudancas;
+    rascunho.produtos.alterados[id] = Object.fromEntries(pendentes);
   }
   persistirRascunho();
   return produtosPosReinicio().find((item) => item.id === id) as ComPendencia<ItemCardapio>;
@@ -444,7 +520,13 @@ function validarRestricao(entrada: unknown): RestricaoCupom | undefined {
   return { tipo: restricao.tipo, ids };
 }
 
-function validarCupomBody(body: CupomBody): Omit<Cupom, 'usos'> {
+// `validoAteAnterior`: fim de vigência já gravado (edição). Um fim que já passou só é
+// recusado quando é novo — editar outro campo de um cupom vencido continua possível.
+function validarCupomBody(
+  body: CupomBody,
+  validoAteAnterior?: string,
+  agora: Date = new Date(),
+): Omit<Cupom, 'usos'> {
   const codigo = typeof body?.codigo === 'string' ? body.codigo.trim().toUpperCase() : '';
   if (!CODIGO_CUPOM.test(codigo)) {
     throw new HttpError(400, 'O código do cupom deve ter de 3 a 20 letras ou números');
@@ -457,8 +539,13 @@ function validarCupomBody(body: CupomBody): Omit<Cupom, 'usos'> {
 
   const validoDe = dataOpcional(body.validoDe, 'Início da validade');
   const validoAte = dataOpcional(body.validoAte, 'Fim da validade');
-  if (validoDe && validoAte && validoDe > validoAte) {
+  if (validoDe && validoAte && validoDe >= validoAte) {
     throw new HttpError(400, 'O fim da validade deve ser depois do início');
+  }
+  const mudouOFim =
+    !validoAteAnterior || Date.parse(validoAte ?? '') !== Date.parse(validoAteAnterior);
+  if (validoAte && mudouOFim && Date.parse(validoAte) <= agora.getTime()) {
+    throw new HttpError(400, 'O fim da validade já passou. Escolha uma data futura.');
   }
 
   return compactar({
@@ -503,7 +590,8 @@ export async function atualizarCupom(codigo: string, body: CupomBody): Promise<C
   if (rascunho.cupons.removidos.includes(codigo)) {
     throw new HttpError(409, 'Este cupom será excluído no reinício. Descarte as pendências para editá-lo.');
   }
-  const dados = validarCupomBody({ ...body, codigo });
+  const anterior = cuponsPosReinicio().find((cupom) => cupom.codigo === codigo);
+  const dados = validarCupomBody({ ...body, codigo }, anterior?.validoAte);
 
   const indiceNovo = rascunho.cupons.novos.findIndex((novo) => novo.codigo === codigo);
   if (indiceNovo !== -1) {

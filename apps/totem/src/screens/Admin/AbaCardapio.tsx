@@ -8,7 +8,8 @@ import type {
 import { BotaoTouch } from '../../components/BotaoTouch';
 import { FotoItem, IconeCategoria } from '../../components/FotoItem';
 import type { DadosProduto } from '../../services/adminApi';
-import { urlImagem } from '../../services/apiClient';
+import { ErroApi, urlImagem } from '../../services/apiClient';
+import { PRAZO_ATUALIZACAO_CARDAPIO } from '../../utils/atualizacaoCardapio';
 import { centavosParaReais, formatarCentavos, reaisParaCentavos } from '../../utils/formatarMoeda';
 import {
   Campo,
@@ -17,6 +18,7 @@ import {
   Opcao,
   SALVO_PENDENTE,
   SeloPendente,
+  VALE_NA_HORA,
   useAcao,
   type PropsAba,
 } from './comum';
@@ -44,25 +46,112 @@ export function AbaCardapio(props: PropsAba) {
 
 // ---------- Categorias ----------
 
-function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
+// Categorias novas ganham um id provisório; o servidor gera o definitivo ao salvar.
+const PREFIXO_NOVA = 'nova-';
+
+function moverNaLista<T>(lista: T[], de: number, para: number): T[] {
+  const copia = [...lista];
+  const [item] = copia.splice(de, 1);
+  copia.splice(para, 0, item);
+  return copia;
+}
+
+// Arrastar e soltar pela alça (⠿), com mouse ou toque: o destino é a linha sob o dedo.
+function useArrastarCategorias(aoSoltar: (de: number, para: number) => void) {
+  const [arrastando, setArrastando] = useState<number | null>(null);
+  const [destino, setDestino] = useState<number | null>(null);
+
+  const linhaSob = (x: number, y: number): number | null => {
+    const linha = document.elementFromPoint(x, y)?.closest('[data-indice-categoria]');
+    const indice = linha?.getAttribute('data-indice-categoria');
+    return indice === null || indice === undefined ? null : Number(indice);
+  };
+
+  const propsAlca = (indice: number) => ({
+    onPointerDown: (evento: React.PointerEvent<HTMLElement>) => {
+      evento.preventDefault();
+      evento.currentTarget.setPointerCapture(evento.pointerId);
+      setArrastando(indice);
+      setDestino(indice);
+    },
+    onPointerMove: (evento: React.PointerEvent<HTMLElement>) => {
+      if (arrastando === null) return;
+      const sob = linhaSob(evento.clientX, evento.clientY);
+      if (sob !== null) setDestino(sob);
+    },
+    onPointerUp: () => {
+      if (arrastando !== null && destino !== null && destino !== arrastando) {
+        aoSoltar(arrastando, destino);
+      }
+      setArrastando(null);
+      setDestino(null);
+    },
+    onPointerCancel: () => {
+      setArrastando(null);
+      setDestino(null);
+    },
+  });
+
+  return { arrastando, destino, propsAlca };
+}
+
+function SecaoCategorias({ api, config, salvarConfig, aoMudarConfig }: PropsAba) {
   const [categorias, setCategorias] = useState<CategoriaCardapio[]>(config.categorias);
   const [exibirTodos, setExibirTodos] = useState(config.exibirTodos);
   const [posicao, setPosicao] = useState<PosicaoCategorias>(config.posicaoCategorias);
   const { retorno, ocupado, executar } = useAcao();
-  // Categorias novas ganham um id provisório; o servidor gera o definitivo ao salvar.
   const proximaNova = useRef(1);
 
   const alterar = (indice: number, parcial: Partial<CategoriaCardapio>) =>
     setCategorias((atuais) => atuais.map((c, i) => (i === indice ? { ...c, ...parcial } : c)));
 
-  const mover = (indice: number, passo: -1 | 1) =>
-    setCategorias((atuais) => {
-      const destino = indice + passo;
-      if (destino < 0 || destino >= atuais.length) return atuais;
-      const copia = [...atuais];
-      [copia[indice], copia[destino]] = [copia[destino], copia[indice]];
-      return copia;
-    });
+  // Ordem e ativação valem na hora (os totens veem em até 30 segundos), sem esperar o
+  // reinício; o que mais estiver sendo editado na lista continua só na tela até "Salvar".
+  // Desativar uma categoria com itens: o servidor pede confirmação explícita.
+  const organizar = (nova: CategoriaCardapio[], sucesso: string) => {
+    const anterior = categorias;
+    setCategorias(nova);
+    const ordem = nova.map((categoria) => categoria.id);
+    const inativas = nova.filter((c) => c.ativa === false).map((categoria) => categoria.id);
+    return executar(async () => {
+      try {
+        let salva;
+        try {
+          salva = await api.organizarCategorias(ordem, inativas);
+        } catch (err) {
+          if (!(err instanceof ErroApi) || err.codigo !== 'CONFIRMAR_DESATIVACAO') throw err;
+          if (!window.confirm(err.message)) {
+            throw new Error('Nada mudou: a categoria continua ativa.');
+          }
+          salva = await api.organizarCategorias(ordem, inativas, true);
+        }
+        aoMudarConfig(salva);
+      } catch (err) {
+        setCategorias(anterior);
+        throw err;
+      }
+    }, sucesso);
+  };
+
+  const mover = (de: number, para: number) => {
+    if (para < 0 || para >= categorias.length || de === para) return;
+    organizar(
+      moverNaLista(categorias, de, para),
+      `Nova ordem em vigor: os totens atualizam em até ${PRAZO_ATUALIZACAO_CARDAPIO}.`,
+    );
+  };
+  const { arrastando, destino, propsAlca } = useArrastarCategorias(mover);
+
+  const alternarAtiva = (indice: number) => {
+    const categoria = categorias[indice];
+    const ativar = categoria.ativa === false;
+    organizar(
+      categorias.map((c, i) => (i === indice ? { ...c, ativa: ativar ? undefined : false } : c)),
+      ativar
+        ? `"${categoria.nome}" reativada: volta aos totens em até ${PRAZO_ATUALIZACAO_CARDAPIO}.`
+        : `"${categoria.nome}" desativada: sai dos totens em até ${PRAZO_ATUALIZACAO_CARDAPIO}.`,
+    );
+  };
 
   const salvar = () =>
     executar(async () => {
@@ -105,12 +194,34 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
       </fieldset>
 
       <p className="admin-dica">
-        A ordem daqui é a ordem das abas no totem. Item 8: o ícone aparece na aba; a capa aparece no
-        alto da lista quando a categoria é escolhida.
+        A ordem daqui é a ordem das abas no totem: arraste pela alça ⠿ (ou use ↑ ↓). Ordem e
+        ativação valem na hora; nome, ícone, capa, categorias novas e removidas entram em vigor no
+        reinício. Item 8: o ícone aparece na aba; a capa aparece no alto da lista quando a
+        categoria é escolhida.
       </p>
       <div className="admin-lista">
         {categorias.map((categoria, indice) => (
-          <div key={categoria.id} className="admin-linha admin-linha--categoria">
+          <div
+            key={categoria.id}
+            data-indice-categoria={indice}
+            className={[
+              'admin-linha admin-linha--categoria',
+              arrastando === indice && 'admin-linha--arrastando',
+              arrastando !== null && destino === indice && arrastando !== indice && 'admin-linha--destino',
+              categoria.ativa === false && 'admin-linha--desativada',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            <span
+              className="admin-alca"
+              role="button"
+              aria-label={`Arrastar ${categoria.nome} para mudar a ordem`}
+              title="Arraste para mudar a ordem"
+              {...(categoria.id.startsWith(PREFIXO_NOVA) || ocupado ? {} : propsAlca(indice))}
+            >
+              ⠿
+            </span>
             <span className="admin-miniatura" aria-hidden="true">
               <IconeCategoria categoria={categoria} />
             </span>
@@ -135,18 +246,27 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
             <div className="admin-linha__acoes">
               <BotaoTouch
                 aria-label={`Subir ${categoria.nome}`}
-                onClick={() => mover(indice, -1)}
-                disabled={indice === 0}
+                onClick={() => mover(indice, indice - 1)}
+                disabled={indice === 0 || ocupado}
               >
                 ↑
               </BotaoTouch>
               <BotaoTouch
                 aria-label={`Descer ${categoria.nome}`}
-                onClick={() => mover(indice, 1)}
-                disabled={indice === categorias.length - 1}
+                onClick={() => mover(indice, indice + 1)}
+                disabled={indice === categorias.length - 1 || ocupado}
               >
                 ↓
               </BotaoTouch>
+              {!categoria.id.startsWith(PREFIXO_NOVA) && (
+                <BotaoTouch
+                  variante={categoria.ativa === false ? 'destaque' : 'padrao'}
+                  onClick={() => alternarAtiva(indice)}
+                  disabled={ocupado}
+                >
+                  {categoria.ativa === false ? 'Reativar' : 'Desativar'}
+                </BotaoTouch>
+              )}
               <BotaoTouch
                 variante="perigo"
                 onClick={() => setCategorias((atuais) => atuais.filter((_, i) => i !== indice))}
@@ -197,7 +317,7 @@ function SecaoCategorias({ api, config, salvarConfig }: PropsAba) {
         onClick={() =>
           setCategorias((atuais) => [
             ...atuais,
-            { id: `nova-${proximaNova.current++}`, nome: '', icone: '' },
+            { id: `${PREFIXO_NOVA}${proximaNova.current++}`, nome: '', icone: '' },
           ])
         }
       >
@@ -327,22 +447,45 @@ function dadosDoForm(form: FormProduto): DadosProduto {
   };
 }
 
-// O formulário manda o produto inteiro. Para não desfazer, no reinício, o que mudou ao
-// vivo enquanto ele estava aberto (vendas baixando o estoque, o funcionário marcando
-// como esgotado ou trocando o preço), só os campos que o administrador mexeu saem do
-// formulário; os demais vêm do produto como está agora.
+// Campos que o administrador mexeu no formulário.
+function camposMudados(editado: DadosProduto, original: DadosProduto): (keyof DadosProduto)[] {
+  return (Object.keys(editado) as (keyof DadosProduto)[]).filter(
+    (campo) => JSON.stringify(editado[campo]) !== JSON.stringify(original[campo]),
+  );
+}
+
+// O formulário manda o produto inteiro. Para não desfazer o que mudou enquanto ele
+// estava aberto (vendas baixando o estoque, o funcionário marcando como esgotado ou
+// trocando o preço), só os campos que o administrador mexeu saem do formulário; os
+// demais vêm do produto como está agora.
 function soOQueMudou(
   editado: DadosProduto,
   original: DadosProduto,
   agora: DadosProduto,
 ): DadosProduto {
   const resultado = { ...agora } as Record<keyof DadosProduto, unknown>;
-  for (const campo of Object.keys(editado) as (keyof DadosProduto)[]) {
-    if (JSON.stringify(editado[campo]) !== JSON.stringify(original[campo])) {
-      resultado[campo] = editado[campo];
-    }
+  for (const campo of camposMudados(editado, original)) {
+    resultado[campo] = editado[campo];
   }
   return resultado as unknown as DadosProduto;
+}
+
+// US 34: num produto que já está à venda, estes campos valem na hora; os outros (nome,
+// categoria, ícone, itens do combo) entram em vigor quando o servidor reinicia.
+const CAMPOS_NA_HORA: (keyof DadosProduto)[] = [
+  'precoCentavos',
+  'imagemUrl',
+  'descricao',
+  'estoque',
+  'disponivel',
+];
+
+function mensagemDaEdicao(mudados: (keyof DadosProduto)[]): string {
+  const naHora = mudados.filter((campo) => CAMPOS_NA_HORA.includes(campo));
+  if (mudados.length === 0) return 'Nada mudou.';
+  if (naHora.length === mudados.length) return `Produto salvo. ${VALE_NA_HORA}`;
+  if (naHora.length === 0) return `Produto salvo. ${SALVO_PENDENTE}`;
+  return 'Produto salvo. Preço, foto, descrição, quantidade e disponibilidade já valem (os totens atualizam em até 30 segundos); o resto entra em vigor quando o servidor for reiniciado.';
 }
 
 function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
@@ -351,6 +494,15 @@ function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
   const { retorno, ocupado, executar } = useAcao();
   const { categorias } = config;
   const form = edicao?.form ?? null;
+  // O formulário abre no lugar do item editado (ou no topo, para um produto novo) e a
+  // tela rola até ele: numa lista longa, ele poderia abrir fora da vista.
+  const formRef = useRef<HTMLFormElement>(null);
+  const abertoEm = edicao ? (edicao.form.id ?? 'novo') : null;
+  useEffect(() => {
+    if (!abertoEm) return;
+    formRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    formRef.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, [abertoEm]);
 
   const carregar = useCallback(
     () => executar(async () => setProdutos(await api.listarProdutos())),
@@ -374,18 +526,26 @@ function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
     setEdicao({ form: formDoProduto(produto), original: dadosDoProduto(produto) });
 
   async function salvar({ form: atual, original }: Edicao) {
-    const salvou = await executar(async () => {
-      let dados = dadosDoForm(atual);
-      if (atual.id && original) {
-        const agora = (await api.listarProdutos()).find((produto) => produto.id === atual.id);
-        if (agora) {
+    let mensagem = `Produto criado. ${SALVO_PENDENTE}`;
+    const salvou = await executar(
+      async () => {
+        let dados = dadosDoForm(atual);
+        // Produto que ainda não está à venda (novo, pendente) fica todo pendente.
+        const agora = atual.id
+          ? (await api.listarProdutos()).find((produto) => produto.id === atual.id)
+          : undefined;
+        if (agora && original) {
           dados = soOQueMudou(dados, original, dadosDoProduto(agora));
+          if (agora.pendente !== 'novo') {
+            mensagem = mensagemDaEdicao(camposMudados(dadosDoForm(atual), original));
+          }
         }
-      }
-      await (atual.id ? api.atualizarProduto(atual.id, dados) : api.criarProduto(dados));
-      setProdutos(await api.listarProdutos());
-      aoSalvar();
-    }, `Produto salvo. ${SALVO_PENDENTE}`);
+        await (atual.id ? api.atualizarProduto(atual.id, dados) : api.criarProduto(dados));
+        setProdutos(await api.listarProdutos());
+        aoSalvar();
+      },
+      () => mensagem,
+    );
     if (salvou) setEdicao(null);
   }
 
@@ -421,183 +581,183 @@ function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
       : `${produto.estoque} à venda`;
   }
 
+  const formulario = form && edicao && (
+    <form
+      ref={formRef}
+      className="admin-form"
+      onSubmit={(evento) => {
+        evento.preventDefault();
+        salvar(edicao);
+      }}
+    >
+      <h3>{form.id ? `Editar ${form.nome}` : form.componentes ? 'Novo combo' : 'Novo produto'}</h3>
+      <div className="admin-grade">
+        <Campo rotulo="Nome">
+          <input
+            type="text"
+            value={form.nome}
+            maxLength={60}
+            onChange={(evento) => alterar({ nome: evento.target.value })}
+          />
+        </Campo>
+        <Campo rotulo="Categoria">
+          <select
+            value={form.categoria}
+            onChange={(evento) => alterar({ categoria: evento.target.value })}
+          >
+            {categorias.map((categoria) => (
+              <option key={categoria.id} value={categoria.id}>
+                {categoria.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo
+          rotulo="Preço (R$)"
+          dica={
+            form.componentes && precoSeparados > 0
+              ? `Separados, os itens custam ${formatarCentavos(precoSeparados)}.`
+              : undefined
+          }
+        >
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="18,90"
+            value={form.preco}
+            onChange={(evento) => alterar({ preco: evento.target.value })}
+          />
+        </Campo>
+        {!form.componentes && (
+          <Campo
+            rotulo="Quantidade à venda"
+            dica="Vazio = sem controle. Com número, o item esgota sozinho quando as unidades acabam."
+          >
+            <input
+              type="text"
+              inputMode="numeric"
+              value={form.estoque}
+              onChange={(evento) => alterar({ estoque: evento.target.value })}
+            />
+          </Campo>
+        )}
+      </div>
+      <Campo rotulo="Descrição">
+        <input
+          type="text"
+          value={form.descricao}
+          maxLength={200}
+          onChange={(evento) => alterar({ descricao: evento.target.value })}
+        />
+      </Campo>
+
+      {form.componentes && (
+        <fieldset className="admin-combo">
+          <legend className="admin-campo__rotulo">Itens do combo</legend>
+          <p className="admin-dica">
+            O combo não tem quantidade própria: ele esgota assim que qualquer item dele acabar.
+          </p>
+          {form.componentes.map((parte, indice) => (
+            <div key={indice} className="admin-combo__linha">
+              <select
+                value={parte.itemCardapioId}
+                aria-label={`Item ${indice + 1} do combo`}
+                onChange={(evento) =>
+                  alterarComponente(indice, { itemCardapioId: evento.target.value })
+                }
+              >
+                <option value="">Escolha um item</option>
+                {candidatosCombo.map((produto) => (
+                  <option key={produto.id} value={produto.id}>
+                    {produto.nome}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label={`Quantidade do item ${indice + 1}`}
+                value={parte.quantidade}
+                onChange={(evento) =>
+                  alterarComponente(indice, { quantidade: evento.target.value })
+                }
+              />
+              <BotaoTouch
+                variante="perigo"
+                aria-label={`Tirar o item ${indice + 1} do combo`}
+                onClick={() =>
+                  alterar({ componentes: form.componentes?.filter((_, i) => i !== indice) })
+                }
+                disabled={form.componentes!.length === 1}
+              >
+                ✕
+              </BotaoTouch>
+            </div>
+          ))}
+          <BotaoTouch
+            onClick={() =>
+              alterar({
+                componentes: [...(form.componentes ?? []), { itemCardapioId: '', quantidade: '1' }],
+              })
+            }
+            disabled={form.componentes.length >= 10}
+          >
+            + Item no combo
+          </BotaoTouch>
+        </fieldset>
+      )}
+
+      <div className="admin-logo">
+        <span className="admin-miniatura" aria-hidden="true">
+          {form.imagemUrl ? <img src={urlImagem(form.imagemUrl)} alt="" /> : form.icone || '🍽️'}
+        </span>
+        <Campo rotulo="Ícone/emoji" dica="Usado quando não há foto.">
+          <input
+            type="text"
+            value={form.icone}
+            maxLength={8}
+            onChange={(evento) => alterar({ icone: evento.target.value })}
+          />
+        </Campo>
+        <CampoImagem
+          rotulo="Foto"
+          ladoMaximo={LADO_FOTO}
+          enviarImagem={api.enviarImagem}
+          executar={executar}
+          aoEnviar={(url) => alterar({ imagemUrl: url })}
+          aoRemover={form.imagemUrl ? () => alterar({ imagemUrl: null }) : undefined}
+          rotuloRemover="Tirar a foto"
+        />
+      </div>
+
+      <Opcao
+        rotulo="Disponível para venda"
+        dica='Desmarcado, o item aparece como "Esgotado" e sai de venda.'
+        marcado={form.disponivel}
+        aoMudar={(disponivel) => alterar({ disponivel })}
+      />
+
+      <div className="admin-linha__acoes">
+        <BotaoTouch type="submit" variante="primario" disabled={ocupado}>
+          Salvar
+        </BotaoTouch>
+        <BotaoTouch onClick={() => setEdicao(null)}>Cancelar</BotaoTouch>
+      </div>
+    </form>
+  );
+
   return (
     <section className="admin-secao">
       <h2>Produtos e combos</h2>
       <p className="admin-dica">
-        {SALVO_PENDENTE} Para marcar como esgotado ou trocar preço, foto e descrição na hora, use o
-        modo Funcionário.
+        Preço, foto, descrição, quantidade e disponibilidade valem na hora: os totens atualizam o
+        cardápio em até 30 segundos. Nome, categoria, ícone, itens do combo, produtos novos e
+        remoções entram em vigor quando o servidor for reiniciado.
       </p>
       <MensagemRetorno retorno={retorno} />
 
-      {form && edicao ? (
-        <form
-          className="admin-form"
-          onSubmit={(evento) => {
-            evento.preventDefault();
-            salvar(edicao);
-          }}
-        >
-          <h3>
-            {form.id ? `Editar ${form.nome}` : form.componentes ? 'Novo combo' : 'Novo produto'}
-          </h3>
-          <div className="admin-grade">
-            <Campo rotulo="Nome">
-              <input
-                type="text"
-                value={form.nome}
-                maxLength={60}
-                onChange={(evento) => alterar({ nome: evento.target.value })}
-              />
-            </Campo>
-            <Campo rotulo="Categoria">
-              <select
-                value={form.categoria}
-                onChange={(evento) => alterar({ categoria: evento.target.value })}
-              >
-                {categorias.map((categoria) => (
-                  <option key={categoria.id} value={categoria.id}>
-                    {categoria.nome}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-            <Campo
-              rotulo="Preço (R$)"
-              dica={
-                form.componentes && precoSeparados > 0
-                  ? `Separados, os itens custam ${formatarCentavos(precoSeparados)}.`
-                  : undefined
-              }
-            >
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder="18,90"
-                value={form.preco}
-                onChange={(evento) => alterar({ preco: evento.target.value })}
-              />
-            </Campo>
-            {!form.componentes && (
-              <Campo
-                rotulo="Quantidade à venda"
-                dica="Vazio = sem controle. Com número, o item esgota sozinho quando as unidades acabam."
-              >
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.estoque}
-                  onChange={(evento) => alterar({ estoque: evento.target.value })}
-                />
-              </Campo>
-            )}
-          </div>
-          <Campo rotulo="Descrição">
-            <input
-              type="text"
-              value={form.descricao}
-              maxLength={200}
-              onChange={(evento) => alterar({ descricao: evento.target.value })}
-            />
-          </Campo>
-
-          {form.componentes && (
-            <fieldset className="admin-combo">
-              <legend className="admin-campo__rotulo">Itens do combo</legend>
-              <p className="admin-dica">
-                O combo não tem quantidade própria: ele esgota assim que qualquer item dele acabar.
-              </p>
-              {form.componentes.map((parte, indice) => (
-                <div key={indice} className="admin-combo__linha">
-                  <select
-                    value={parte.itemCardapioId}
-                    aria-label={`Item ${indice + 1} do combo`}
-                    onChange={(evento) =>
-                      alterarComponente(indice, { itemCardapioId: evento.target.value })
-                    }
-                  >
-                    <option value="">Escolha um item</option>
-                    {candidatosCombo.map((produto) => (
-                      <option key={produto.id} value={produto.id}>
-                        {produto.nome}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    aria-label={`Quantidade do item ${indice + 1}`}
-                    value={parte.quantidade}
-                    onChange={(evento) =>
-                      alterarComponente(indice, { quantidade: evento.target.value })
-                    }
-                  />
-                  <BotaoTouch
-                    variante="perigo"
-                    aria-label={`Tirar o item ${indice + 1} do combo`}
-                    onClick={() =>
-                      alterar({ componentes: form.componentes?.filter((_, i) => i !== indice) })
-                    }
-                    disabled={form.componentes!.length === 1}
-                  >
-                    ✕
-                  </BotaoTouch>
-                </div>
-              ))}
-              <BotaoTouch
-                onClick={() =>
-                  alterar({
-                    componentes: [
-                      ...(form.componentes ?? []),
-                      { itemCardapioId: '', quantidade: '1' },
-                    ],
-                  })
-                }
-                disabled={form.componentes.length >= 10}
-              >
-                + Item no combo
-              </BotaoTouch>
-            </fieldset>
-          )}
-
-          <div className="admin-logo">
-            <span className="admin-miniatura" aria-hidden="true">
-              {form.imagemUrl ? <img src={urlImagem(form.imagemUrl)} alt="" /> : form.icone || '🍽️'}
-            </span>
-            <Campo rotulo="Ícone/emoji" dica="Usado quando não há foto.">
-              <input
-                type="text"
-                value={form.icone}
-                maxLength={8}
-                onChange={(evento) => alterar({ icone: evento.target.value })}
-              />
-            </Campo>
-            <CampoImagem
-              rotulo="Foto"
-              ladoMaximo={LADO_FOTO}
-              enviarImagem={api.enviarImagem}
-              executar={executar}
-              aoEnviar={(url) => alterar({ imagemUrl: url })}
-              aoRemover={form.imagemUrl ? () => alterar({ imagemUrl: null }) : undefined}
-              rotuloRemover="Tirar a foto"
-            />
-          </div>
-
-          <Opcao
-            rotulo="Disponível para venda"
-            dica='Desmarcado, o item aparece como "Esgotado" e sai de venda.'
-            marcado={form.disponivel}
-            aoMudar={(disponivel) => alterar({ disponivel })}
-          />
-
-          <div className="admin-linha__acoes">
-            <BotaoTouch type="submit" variante="primario" disabled={ocupado}>
-              Salvar
-            </BotaoTouch>
-            <BotaoTouch onClick={() => setEdicao(null)}>Cancelar</BotaoTouch>
-          </div>
-        </form>
-      ) : (
+      {form && edicao && !form.id && formulario}
+      {!form && (
         <div className="admin-linha__acoes">
           <BotaoTouch
             variante="primario"
@@ -617,6 +777,9 @@ function SecaoProdutos({ api, config, aoSalvar }: PropsAba) {
 
       <div className="admin-lista">
         {produtos.map((produto) => {
+          if (form?.id === produto.id) {
+            return <div key={produto.id}>{formulario}</div>;
+          }
           const sai = produto.pendente === 'removido';
           return (
             <div

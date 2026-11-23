@@ -21,6 +21,7 @@ export interface CategoriaCardapioRow {
   icone_imagem_url: string | null;
   capa_url: string | null;
   ordem: number;
+  ativa: boolean; // false = some dos totens com os itens (migration 0006)
 }
 
 // Item 7: pendências do Administrador, aplicadas quando o servidor reinicia.
@@ -88,6 +89,36 @@ export interface PedidoRow {
   forma_pagamento: string | null;
   pontos_previstos: number; // dinheiro: creditados quando o caixa confirma
   criado_em: string;
+  pago_em: string | null;
+  transacao_id: string | null; // transação que pagou o pedido
+  conciliado_com_atraso: boolean; // Pix confirmado depois de o QR expirar
+  pix_sequencia: number; // cobranças Pix criadas (chave de idempotência)
+}
+
+// US 11: cada QR Code Pix gerado para um pedido (migration 0006).
+export interface CobrancaPixRow {
+  transacao_id: string;
+  pedido_id: string;
+  copia_e_cola: string;
+  valor_centavos: number;
+  criada_em: string;
+  expira_em: string;
+  status: 'pendente' | 'paga' | 'expirada' | 'cancelada';
+}
+
+// US 15: a NFC-e do pedido, autorizada ou com a falha registrada (migration 0006).
+export interface NotaFiscalRow {
+  pedido_id: string;
+  status: 'autorizada' | 'falha';
+  numero: string | null;
+  serie: string | null;
+  chave_acesso: string | null;
+  url_consulta: string | null;
+  url_danfe: string | null;
+  erro: string | null;
+  tentativas: number;
+  ultima_tentativa_em: string;
+  autorizada_em: string | null;
 }
 
 // US 29: trilha de auditoria do consentimento — só inserções, sem o dado pessoal.
@@ -98,6 +129,7 @@ export interface RegistroConsentimentoRow {
   aceito: boolean;
   versao_termo: string;
   registrado_em: string;
+  origem: 'totem' | 'balcao'; // balcao = reenvio autorizado no balcão (migration 0006)
 }
 
 export interface ItemPedidoRow {
@@ -116,4 +148,25 @@ export interface ComprovanteRow {
   destino: string; // LGPD: dado pessoal — exige consentimento/criptografia
   nota_fiscal_url: string | null;
   enviado_em: string | null;
+}
+
+// US 25: histórico de vendas — só inserções, sem dado pessoal.
+export interface VendaRow {
+  pedido_id: string;
+  numero: string;
+  paga_em: string;
+  forma_pagamento: string;
+  consumo: 'local' | 'viagem' | null;
+  cupom: string | null;
+}
+
+export interface ItemVendidoRow {
+  pedido_id: string;
+  item_cardapio_id: string;
+  nome: string;
+  categoria: string;
+  categoria_nome: string;
+  quantidade: number;
+  valor_centavos: number; // quantidade × preço, antes dos descontos
+  desconto_centavos: number; // parte dos descontos do pedido que coube à linha
 }

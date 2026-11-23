@@ -4,12 +4,16 @@ import type {
   Comprovante,
   ConfigTotem,
   ConsumoPedido,
+  EventoNfc,
+  LeituraNfc,
+  ResultadoLeituraNfc,
   FinalidadeConsentimento,
   FormaPagamento,
   ItemCardapio,
   Pedido,
   ResultadoAplicacaoCupom,
   ResultadoPagamento,
+  SituacaoPix,
   TermoConsentimento,
 } from '@totem/shared';
 
@@ -20,27 +24,56 @@ import type {
 const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:3333`;
 
 // Erro de uma chamada à API, com o status HTTP para a tela distinguir os casos
-// (ex.: 400 = CPF inválido, 404 = CPF sem cadastro).
+// (ex.: 400 = CPF inválido, 404 = CPF sem cadastro) e, às vezes, um código
+// (ex.: CONFIRMAR_DESATIVACAO). Status 0 = sem resposta (rede caiu ou demorou demais).
 export class ErroApi extends Error {
   status: number;
+  codigo?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, codigo?: string) {
     super(message);
     this.status = status;
+    this.codigo = codigo;
   }
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resposta = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+// Sem resposta da API, o pedido continua salvo no servidor: o cliente só precisa tentar
+// de novo.
+export const MENSAGEM_SEM_CONEXAO =
+  'Conexão instável: não foi possível falar com o servidor. Seu carrinho continua salvo. ' +
+  'Tente de novo.';
+
+// Tempo máximo de espera por uma resposta; acima disso, vale como queda de conexão.
+const TEMPO_LIMITE_PADRAO_MS = 20_000;
+
+export async function request<T>(
+  path: string,
+  init?: RequestInit & { tempoLimiteMs?: number },
+): Promise<T> {
+  const controle = new AbortController();
+  const limite = window.setTimeout(
+    () => controle.abort(),
+    init?.tempoLimiteMs ?? TEMPO_LIMITE_PADRAO_MS,
+  );
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${API_URL}${path}`, {
+      ...init,
+      signal: controle.signal,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch {
+    throw new ErroApi(0, MENSAGEM_SEM_CONEXAO);
+  } finally {
+    window.clearTimeout(limite);
+  }
 
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
     throw new ErroApi(
       resposta.status,
       corpo.message ?? `Erro ${resposta.status} ao chamar ${path}`,
+      corpo.code,
     );
   }
 
@@ -212,6 +245,21 @@ export function escolherFormaPagamento(
   });
 }
 
+// US 11: situação do Pix enquanto o QR Code está na tela (QR, prazo, pago ou expirado)
+export function consultarPix(pedidoId: string): Promise<SituacaoPix> {
+  return request(`/pagamento/${pedidoId}/pix`, { tempoLimiteMs: 8_000 });
+}
+
+// US 11: desiste do Pix (outra forma de pagamento ou voltar ao carrinho)
+export function cancelarPix(pedidoId: string): Promise<SituacaoPix> {
+  return request(`/pagamento/${pedidoId}/pix/cancelar`, { method: 'POST', body: '{}' });
+}
+
+// US 15: NFC-e do pedido pago, com o QR Code de consulta
+export function obterComprovante(pedidoId: string): Promise<Comprovante> {
+  return request(`/comprovante/${pedidoId}`);
+}
+
 // US-08
 // LGPD: dado pessoal — exige consentimento/criptografia (email/telefone)
 export function enviarComprovante(
@@ -230,4 +278,39 @@ export function dispensarComprovante(pedidoId: string): Promise<Comprovante> {
     method: 'POST',
     body: JSON.stringify({ pedidoId }),
   });
+}
+
+// ---------- Módulo NFC (opcional) ----------
+
+// Leitor (celular ligado por USB-C): manda o cartão aproximado. A API só aceita leituras
+// que chegam pelo cabo.
+export function enviarLeituraNfc(leitura: LeituraNfc): Promise<ResultadoLeituraNfc> {
+  return request('/nfc/leitura', {
+    method: 'POST',
+    body: JSON.stringify(leitura),
+    tempoLimiteMs: 5_000,
+  });
+}
+
+// Leitor: "estou ligado" (a cada poucos segundos)
+export function enviarSinalNfc(): Promise<void> {
+  return request('/nfc/sinal', { method: 'POST', body: '{}', tempoLimiteMs: 4_000 });
+}
+
+export function estadoLeitorNfc(): Promise<{ leitorAtivo: boolean }> {
+  return request('/nfc/estado');
+}
+
+// Totem: leituras e estado do leitor ao vivo. O EventSource reconecta sozinho se a API
+// cair. Devolve a função que encerra a assinatura.
+export function assinarEventosNfc(aoReceber: (evento: EventoNfc) => void): () => void {
+  const fonte = new EventSource(`${API_URL}/nfc/eventos`);
+  fonte.onmessage = (mensagem) => {
+    try {
+      aoReceber(JSON.parse(mensagem.data) as EventoNfc);
+    } catch {
+      // evento malformado: ignora
+    }
+  };
+  return () => fonte.close();
 }

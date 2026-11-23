@@ -1,12 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { MockEmissorFiscal } from '../../integrations/api-fiscal';
+import { emissorFiscal, servicoNotificacao } from '../../integrations/instancias';
 import { exigirPapel } from '../admin/acesso';
+import { reemitirNota, reenviarComprovante } from '../comprovante/comprovante.service';
+import type { ReenviarComprovanteBody } from '../comprovante/comprovante.types';
 import { enviarImagem } from '../admin/admin.service';
 import type { EnviarImagemBody, ProdutoAoVivoBody } from '../admin/admin.types';
 import {
   atualizarProdutoAoVivo,
   cancelarPedidoNoCaixa,
   confirmarEntrega,
+  consultarPedidos,
   listarPedidosAguardando,
   listarProdutosAoVivo,
   receberPagamentoNoCaixa,
@@ -16,8 +19,6 @@ import {
 // na hora.
 export async function funcionarioRoutes(app: FastifyInstance): Promise<void> {
   exigirPapel(app, ['administrador', 'funcionario']);
-  // TODO: injeção de dependência quando o emissor fiscal real existir.
-  const emissorFiscal = new MockEmissorFiscal();
 
   app.get('/produtos', async () => {
     return listarProdutosAoVivo();
@@ -51,5 +52,23 @@ export async function funcionarioRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>('/pedidos/:id/entregar', async (request, reply) => {
     await confirmarEntrega(request.params.id);
     return reply.status(204).send();
+  });
+
+  // Consulta de pedidos (período, situação da nota e forma de pagamento na query).
+  // LGPD: CPF e contatos voltam mascarados.
+  app.get<{ Querystring: Record<string, unknown> }>('/historico', async (request) => {
+    return consultarPedidos(request.query);
+  });
+  // Reenvio do comprovante, a pedido do cliente no balcão
+  // LGPD: dado pessoal — exige consentimento/criptografia (email/telefone no body)
+  app.post<{ Params: { id: string }; Body: ReenviarComprovanteBody }>(
+    '/historico/:id/reenviar',
+    async (request) => {
+      return reenviarComprovante(request.params.id, request.body, servicoNotificacao);
+    },
+  );
+  // Nova tentativa de emitir a NFC-e que falhou
+  app.post<{ Params: { id: string } }>('/historico/:id/nota', async (request) => {
+    return reemitirNota(request.params.id, emissorFiscal);
   });
 }

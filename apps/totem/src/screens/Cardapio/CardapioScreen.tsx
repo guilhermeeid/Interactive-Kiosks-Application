@@ -105,6 +105,13 @@ export function CardapioScreen() {
     }
   }
 
+  // A categoria aberta foi desativada no /admin: volta para "Todos" ou para a primeira.
+  useEffect(() => {
+    if (categoria !== null && !categorias.some((cat) => cat.id === categoria)) {
+      setCategoria(exibirTodos ? null : (categorias[0]?.id ?? null));
+    }
+  }, [categoria, categorias, exibirTodos]);
+
   const itensNoCarrinho = pedido?.itens ?? [];
   const quantidadeNoCarrinho = itensNoCarrinho.reduce((total, item) => total + item.quantidade, 0);
   const categoriaAberta = categorias.find((cat) => cat.id === categoria);

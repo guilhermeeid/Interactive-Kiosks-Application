@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CategoriaCardapio,
   ComPendencia,
@@ -172,6 +172,14 @@ export function AbaCupons({ api, config, salvarConfig, aoSalvar }: PropsAba) {
   const [produtos, setProdutos] = useState<ComPendencia<ItemCardapio>[]>([]);
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [form, setForm] = useState<FormCupom | null>(null);
+  // O formulário abre acima da tabela: com muitos cupons, a tela rola até ele.
+  const formRef = useRef<HTMLFormElement>(null);
+  const abertoEm = form ? (form.novo ? 'novo' : form.codigo) : null;
+  useEffect(() => {
+    if (!abertoEm) return;
+    formRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    formRef.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, [abertoEm]);
   // Código do cupom cujo QR está aberto na tela.
   const [qr, setQr] = useState<string | null>(null);
   const { retorno, ocupado, executar } = useAcao();
@@ -247,6 +255,7 @@ export function AbaCupons({ api, config, salvarConfig, aoSalvar }: PropsAba) {
 
       {form ? (
         <form
+          ref={formRef}
           className="admin-form"
           onSubmit={(evento) => {
             evento.preventDefault();

@@ -29,4 +29,7 @@ export interface RegistroConsentimento {
   aceito: boolean;
   versaoTermo: string;
   registradoEm: string; // ISO 8601 (data e hora)
+  // `balcao`: o cliente pediu, no balcão, o reenvio do comprovante para um contato novo e
+  // o atendente registrou a autorização. Ausente = decisão tomada no totem.
+  origem?: 'totem' | 'balcao';
 }

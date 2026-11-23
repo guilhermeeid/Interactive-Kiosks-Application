@@ -17,6 +17,9 @@ export interface PropsAba {
   salvarConfig: (config: ConfigTotem) => Promise<ConfigTotem>;
   // Avisa o painel que algo foi salvo, para atualizar a faixa de pendências.
   aoSalvar: () => void;
+  // Atualiza a configuração que o painel guarda depois de uma mudança que vale na hora
+  // (ordem e ativação das categorias).
+  aoMudarConfig: (config: ConfigTotem) => void;
 }
 
 // Abas do modo Funcionário.
@@ -24,11 +27,14 @@ export interface PropsAbaFuncionario {
   api: FuncionarioApi;
 }
 
-// Item 7: o que o Administrador salva só entra em vigor quando o servidor é reiniciado.
+// Item 7: o que o Administrador salva só entra em vigor quando o servidor é reiniciado
+// (menos preço, foto, descrição, quantidade e disponibilidade dos produtos: ver
+// VALE_NA_HORA).
 export const SALVO_PENDENTE =
   'Salvo como pendente. Entra em vigor quando o servidor for reiniciado.';
 
-// Item 7 / US 34: o que o Funcionário muda vale na hora.
+// US 34: o que vale na hora — tudo o que o Funcionário muda e, no modo Administrador,
+// preço, foto, descrição, quantidade e disponibilidade dos produtos.
 export const VALE_NA_HORA = `Vale na hora: os totens atualizam o cardápio em até ${PRAZO_ATUALIZACAO_CARDAPIO}.`;
 
 export interface Retorno {
@@ -37,24 +43,29 @@ export interface Retorno {
 }
 
 // Executa uma chamada à API guardando o resultado para exibir ao administrador.
-// `executar` devolve true se deu certo.
+// `executar` devolve true se deu certo. A mensagem de sucesso pode ser uma função, para
+// depender do que a ação fez.
 export function useAcao() {
   const [retorno, setRetorno] = useState<Retorno | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
-  const executar = useCallback(async (acao: () => Promise<unknown>, sucesso?: string) => {
-    setOcupado(true);
-    try {
-      await acao();
-      setRetorno(sucesso ? { tipo: 'ok', texto: sucesso } : null);
-      return true;
-    } catch (err) {
-      setRetorno({ tipo: 'erro', texto: (err as Error).message });
-      return false;
-    } finally {
-      setOcupado(false);
-    }
-  }, []);
+  const executar = useCallback(
+    async (acao: () => Promise<unknown>, sucesso?: string | (() => string)) => {
+      setOcupado(true);
+      try {
+        await acao();
+        const texto = typeof sucesso === 'function' ? sucesso() : sucesso;
+        setRetorno(texto ? { tipo: 'ok', texto } : null);
+        return true;
+      } catch (err) {
+        setRetorno({ tipo: 'erro', texto: (err as Error).message });
+        return false;
+      } finally {
+        setOcupado(false);
+      }
+    },
+    [],
+  );
 
   return { retorno, ocupado, executar };
 }
